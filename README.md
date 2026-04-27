@@ -1,4 +1,4 @@
-# Kalshi Signal
+# Kalshi Signal (BTCPred)
 
 A paper trading signal dashboard for Kalshi BTC 15-minute markets.
 Uses ensemble agreement between market probability and an independent XGBoost model to generate high-confidence trading signals.
