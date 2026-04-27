@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Kalshi Signal{% endblock %}
+
+{% block content %}
+<section class="trade-layout">
+    <header class="trade-header">
+        <div>
+            <p class="mono text-muted" id="market-ticker">--</p>
+            <h2 class="trade-market-title" id="market-title">--</h2>
+            <div class="trade-market-meta-row">
+                <p class="trade-btc-price mono" id="btc-price-value">--</p>
+                <div class="trade-direction-pills">
+                    <span class="trade-price-pill up" id="up-price-pill">Up --</span>
+                    <span class="trade-price-pill down" id="down-price-pill">Down --</span>
+                </div>
+            </div>
+        </div>
+        <div class="trade-countdown-wrap">
+            <p class="text-muted">closes in</p>
+            <h1 class="trade-countdown mono countdown-normal" id="market-seconds-live">--</h1>
+        </div>
+    </header>
+
+    <div class="trade-main-grid">
+        <div class="trade-left-column">
+        <article class="card trade-chart-panel">
+            <header class="panel-head">
+                <h3>Market Probability</h3>
+                <div class="trade-chart-controls">
+                    <span class="text-muted">Last 50 snapshots</span>
+                    <button type="button" class="chart-toggle-pill market active" id="toggle-market-line">
+                        <span class="chart-toggle-dot"></span>Market
+                    </button>
+                    <button type="button" class="chart-toggle-pill model active" id="toggle-model-line">
+                        <span class="chart-toggle-dot"></span>Model
+                    </button>
+                    <button type="button" class="chart-toggle-pill threshold active" id="toggle-threshold-line">
+                        <span class="chart-toggle-dot"></span>Threshold
+                    </button>
+                </div>
+            </header>
+            <div class="trade-chart-wrap">
+                <canvas id="probability-chart" aria-label="Probability History Chart"></canvas>
+            </div>
+            <p class="text-muted trade-freshness" id="chart-freshness">Updated -- · <span class="dot market-dot"></span>Market · <span class="dot model-dot"></span>Model</p>
+        </article>
+
+        <article class="card trade-mini-card trade-recent-trades">
+            <header class="panel-head">
+                <h3>Recent Trades</h3>
+                <span class="text-muted trade-mini-sub">Last 5 resolved</span>
+            </header>
+            <ul class="trade-recent-list" id="recent-trades-list" aria-label="Recent resolved paper trades">
+                <li class="trade-recent-empty text-muted" id="recent-trades-empty">No resolved trades yet</li>
+            </ul>
+        </article>
+
+        <article class="card trade-mini-card trade-signal-intel">
+            <header class="panel-head">
+                <h3>Signal Intelligence</h3>
+            </header>
+            <div class="signal-intel-grid" id="signal-intel-grid">
+                <div class="signal-intel-cell">
+                    <p class="signal-intel-label text-muted">Best Region</p>
+                    <p class="signal-intel-value text-success" id="intel-best-region">--</p>
+                </div>
+                <div class="signal-intel-cell">
+                    <p class="signal-intel-label text-muted">Active Mode</p>
+                    <p class="signal-intel-value signal-intel-mode" id="intel-active-mode">
+                        <span class="signal-mode-dot" id="intel-active-mode-dot" aria-hidden="true"></span>
+                        <span id="intel-active-mode-text">--</span>
+                    </p>
+                </div>
+                <div class="signal-intel-cell">
+                    <p class="signal-intel-label text-muted">Today&apos;s Trades</p>
+                    <p class="signal-intel-value" id="intel-todays-trades">--</p>
+                </div>
+                <div class="signal-intel-cell">
+                    <p class="signal-intel-label text-muted" id="intel-confidence-stat-label">Signal Rate</p>
+                    <p class="signal-intel-confidence mono" id="intel-model-confidence">--</p>
+                    <p class="signal-intel-sublabel text-muted" id="intel-agreement-region">--</p>
+                </div>
+            </div>
+        </article>
+        </div>
+
+        <aside class="trade-right-stack">
+            <article class="card trade-stat-list">
+                <div class="trade-stat-row"><span class="text-muted">Market</span><span class="mono trade-stat-value market" id="metric-p-market">--</span></div>
+                <div class="trade-stat-row"><span class="text-muted">Model</span><span class="mono trade-stat-value model" id="metric-p-raw">--</span></div>
+                <div class="trade-stat-row"><span class="text-muted">Confidence</span><span class="mono trade-stat-value" id="metric-confidence">--</span></div>
+            </article>
+            <article class="card threshold-gap-card">
+                <p class="trade-label text-muted">DISTANCE TO SIGNAL</p>
+                <div class="threshold-gap-row hidden" id="threshold-time-row">
+                    <span class="text-muted">Time Window</span>
+                    <span class="mono threshold-gap-text" id="threshold-time-text">--</span>
+                </div>
+                <div class="threshold-gap-row" id="threshold-primary-row">
+                    <span class="text-muted" id="threshold-primary-label">Market</span>
+                    <div class="threshold-bar-container">
+                        <div class="threshold-bar-fill market" id="market-threshold-fill"></div>
+                        <div class="threshold-bar-gap" id="market-threshold-gap"></div>
+                        <div class="threshold-bar-marker" id="market-threshold-marker"></div>
+                    </div>
+                    <span class="mono threshold-gap-text" id="market-gap-text">--</span>
+                </div>
+                <div class="threshold-gap-row" id="threshold-secondary-row">
+                    <span class="text-muted" id="threshold-secondary-label">Model</span>
+                    <div class="threshold-bar-container">
+                        <div class="threshold-bar-fill model" id="model-threshold-fill"></div>
+                        <div class="threshold-bar-gap" id="model-threshold-gap"></div>
+                        <div class="threshold-bar-marker" id="model-threshold-marker"></div>
+                    </div>
+                    <span class="mono threshold-gap-text" id="model-gap-text">--</span>
+                </div>
+                <div class="threshold-gap-row hidden" id="threshold-tertiary-row">
+                    <span class="text-muted" id="threshold-tertiary-label">Entry filter</span>
+                    <div class="threshold-bar-container">
+                        <div class="threshold-bar-fill market" id="entry-filter-fill"></div>
+                        <div class="threshold-bar-gap" id="entry-filter-gap"></div>
+                        <div class="threshold-bar-marker" id="entry-filter-marker"></div>
+                    </div>
+                    <span class="mono threshold-gap-text" id="entry-filter-text">--</span>
+                </div>
+                <div class="threshold-agreement-row">
+                    <span class="badge badge-neutral" id="threshold-agreement-pill">Both below threshold</span>
+                </div>
+            </article>
+            <article class="card reversal-risk-card">
+                <p class="trade-label text-muted">REVERSAL RISK</p>
+                <div class="reversal-risk-row">
+                    <div class="reversal-risk-bar-wrap">
+                        <div class="reversal-risk-bar-fill" id="reversal-risk-fill"></div>
+                    </div>
+                    <span class="mono" id="reversal-risk-score">--</span>
+                </div>
+                <p class="text-muted" id="reversal-risk-text">--</p>
+                <p class="badge badge-danger hidden reversal-risk-guard-pill" id="reversal-risk-block-pill">🚫 AUTO-TRADE BLOCKED</p>
+            </article>
+            <article class="card trade-signal-card signal-none" id="signal-card">
+                <h2 class="mono" id="metric-signal">WAITING</h2>
+                <p class="text-muted" id="signal-subtext">Watching for agreement above --...</p>
+                <p class="badge badge-warning hidden trade-early-entry-pill" id="early-entry-pill">⚡ Early Entry Signal</p>
+                <p class="hidden trade-signal-warning" id="signal-risk-warning"></p>
+            </article>
+            <article class="card trade-input-panel">
+                <p class="trade-label text-muted">PLACE TRADE</p>
+                <label class="trade-size-wrap">
+                    <span>$</span>
+                    <input id="trade-size-input" type="number" min="1" step="0.5" value="{{ paper_trade_size }}">
+                </label>
+                <p class="text-muted hidden" id="trade-size-saved-indicator">Saved</p>
+                <p class="text-muted" id="contracts-estimate">≈ -- contracts · Cost -- · Payout if correct: --</p>
+                <div class="trade-payout-box" id="trade-payout-box">
+                    <div class="trade-payout-row">
+                        <span class="text-muted">Odds</span>
+                        <span class="mono" id="payout-odds">-- chance</span>
+                    </div>
+                    <div class="trade-payout-row">
+                        <span class="text-muted" id="payout-win-label">Payout if YES</span>
+                        <span class="mono text-success" id="payout-win-value">+$0.00</span>
+                    </div>
+                    <div class="trade-payout-row">
+                        <span class="text-muted" id="payout-lose-label">Payout if NO</span>
+                        <span class="mono text-danger" id="payout-lose-value">$0.00</span>
+                    </div>
+                    <div class="trade-payout-row">
+                        <span class="text-muted">Net Profit</span>
+                        <span class="mono text-success" id="payout-net-profit">+$0.00</span>
+                    </div>
+                </div>
+                <p class="text-warning hidden" id="entry-filter-warning">⚠ Entry filter active — this trade would not auto-fire.</p>
+                <p class="text-warning hidden" id="no-leverage-warning">⚠ High leverage — NO contracts are cheap but unlikely to win</p>
+                <div class="trade-buttons-joined">
+                    <button type="button" class="btn-primary" id="paper-buy-yes-btn">BUY YES</button>
+                    <button type="button" class="btn-danger" id="paper-buy-no-btn">BUY NO</button>
+                </div>
+                <p class="text-warning hidden" id="paper-trade-lock-msg">🔒 Trading locked — less than 60s to close</p>
+                <div class="trade-autotoggle-row">
+                    <span class="text-muted">Auto-Trader</span>
+                    <div class="trade-autotoggle-right">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="auto-trade-toggle" {% if auto_trade_enabled %}checked{% endif %}>
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <span class="badge {{ 'badge-success' if auto_trade_enabled and paper_trading_enabled else 'badge-neutral' }}" id="auto-trade-active-pill">
+                            {{ "ACTIVE" if auto_trade_enabled and paper_trading_enabled else "INACTIVE" }}
+                        </span>
+                    </div>
+                </div>
+                <p class="text-success auto-trade-volatility-status" id="auto-trade-volatility-status">Auto-trader active</p>
+            </article>
+        </aside>
+    </div>
+
+    <article class="card trade-bottom-bar">
+        <div class="trade-bottom-stats">
+            <span>Cash: <strong class="mono" id="paper-cash">--</strong></span>
+            <span>P&L: <strong class="mono" id="paper-realized-pnl">--</strong></span>
+            <span>Win Rate: <strong class="mono" id="paper-win-rate">--</strong></span>
+            <span>Return: <strong class="mono" id="paper-return-pct">--</strong></span>
+        </div>
+        <button type="button" class="btn-ghost" id="paper-reset-btn">Reset Portfolio</button>
+    </article>
+</section>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<div class="modal-backdrop" id="reset-modal">
+    <div class="modal-card">
+        <h3>Reset portfolio?</h3>
+        <p class="text-muted">This will clear all trades and positions.</p>
+        <label class="settings-field">
+            <span>Starting balance ($)</span>
+            <input id="paper-reset-balance" type="number" min="1" step="1" value="100">
+        </label>
+        <div class="settings-actions">
+            <button type="button" class="btn-danger" id="paper-reset-confirm-btn">Confirm</button>
+            <button type="button" class="btn-ghost" id="paper-reset-cancel-btn">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="no-trade-risk-modal">
+    <div class="modal-card">
+        <h3>High Risk Trade</h3>
+        <p class="text-muted" id="no-trade-risk-body">
+            You're buying NO with --s to close. With more than 2 minutes remaining, there's significant risk of reversal.
+            The auto-trader would not take this trade.
+        </p>
+        <p class="text-muted" id="no-trade-risk-level">Current reversal risk: --</p>
+        <p class="text-muted">Are you sure you want to proceed?</p>
+        <div class="settings-actions">
+            <button type="button" class="btn-ghost" id="no-trade-risk-cancel-btn">Cancel</button>
+            <button type="button" class="btn-danger" id="no-trade-risk-confirm-btn">Buy NO Anyway</button>
+        </div>
+    </div>
+</div>
+
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+{% endblock %}

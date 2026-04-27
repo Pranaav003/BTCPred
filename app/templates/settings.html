@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+{% block title %}Settings — Kalshi Signal{% endblock %}
+
+{% block content %}
+<section class="settings-grid">
+    <header class="settings-header">
+        <div>
+            <h1>Settings</h1>
+            <p class="text-muted">Configure signal thresholds, timing windows, and system behavior</p>
+        </div>
+        <div class="settings-header-actions">
+            <span class="text-muted mono" id="settings-last-saved">Last saved: --</span>
+            <button type="button" class="btn-primary" id="save-settings-btn">Save All Changes</button>
+        </div>
+    </header>
+
+    <article class="card settings-card">
+        <header class="panel-head">
+            <div>
+                <h3>Signal Mode</h3>
+                <p class="text-muted">Choose how live signals are generated.</p>
+            </div>
+        </header>
+        <div class="signal-mode-grid" id="signal-mode-grid">
+            <button type="button" class="profile-card signal-mode-card" data-mode="agreement" id="signal-mode-agreement">
+                <div class="profile-head">
+                    <h4>Agreement</h4>
+                </div>
+                <p class="risk-desc">Uses the Risk Profile threshold (65% default). Both models must exceed the threshold simultaneously.</p>
+            </button>
+            <button type="button" class="profile-card signal-mode-card" data-mode="mispricing" id="signal-mode-mispricing">
+                <div class="profile-head">
+                    <h4>Mispricing</h4>
+                </div>
+                <p class="risk-desc">Uses the Risk Profile for time windows. Fires when models diverge by the mispricing threshold. Best paired with Conservative or Moderate profile for tighter time windows.</p>
+            </button>
+            <button type="button" class="profile-card signal-mode-card" data-mode="ensemble" id="signal-mode-ensemble">
+                <div class="profile-head">
+                    <h4>Ensemble Vote</h4>
+                </div>
+                <p class="risk-desc">Fires when EITHER both models agree above threshold, OR the model detects a 20%+ mispricing - whichever comes first. Entry filter prevents buying at unfavorable prices. Backtest: 162 trades, 77.8% accuracy, +$197 total PnL.</p>
+                <p class="text-muted">Trigger: Agreement ≥65% OR Gap ≥20%</p>
+                <p class="text-muted">Entry filter: max 80¢ · Backtest trades: 162 · Backtest accuracy: 77.8%</p>
+            </button>
+        </div>
+        <p class="text-muted">The Risk Profile below controls timing and early-entry windows for all modes.</p>
+        <div class="settings-field hidden" id="mispricing-threshold-wrap">
+            <label for="mispricing-threshold-slider">Mispricing threshold: <span class="mono" id="mispricing-threshold-value">10.0%</span></label>
+            <div class="settings-inline-value">
+                <input id="mispricing-threshold-slider" type="range" min="0.05" max="0.30" step="0.01" value="{{ settings.mispricing_threshold }}">
+            </div>
+            <p class="text-muted">Fire when model and market differ by at least <span class="mono" id="mispricing-threshold-helper">10.0%</span>.</p>
+        </div>
+    </article>
+
+    <article class="card settings-card">
+        <header class="panel-head">
+            <div>
+                <h3>Risk Profile</h3>
+                <p class="text-muted">Primary control for signal thresholds, time window, and position sizing.</p>
+            </div>
+        </header>
+        <div class="risk-profiles-grid" id="risk-profiles-grid"></div>
+        <div class="warning-banner hidden" id="no-side-banner">
+            ⚠ Experimental mode active — NO-side trades will fire alongside your <span id="no-side-banner-profile">moderate</span> profile signals.
+        </div>
+    </article>
+
+    <article class="card settings-card">
+        <header class="panel-head">
+            <div>
+                <h3>Entry Price Filter</h3>
+                <p class="text-muted">Prevents taking trades when potential profit is too small. At 97¢ entry, you need 50 wins to recover one loss.</p>
+            </div>
+        </header>
+        <div class="settings-field">
+            <label for="max-entry-yes-slider">
+                Max YES Entry Price:
+                <span class="mono" id="max-entry-yes-label">Don't buy YES above 85¢</span>
+            </label>
+            <div class="settings-inline-value">
+                <input id="max-entry-yes-slider" type="range" min="0.55" max="1.00" step="0.01" value="{{ settings.max_entry_price_yes }}">
+            </div>
+            <p class="text-muted" id="max-entry-yes-calc">At 85¢ entry with $20: --</p>
+        </div>
+        <div class="settings-field">
+            <label for="max-entry-no-slider">
+                Max NO Entry Price (NO price = 1 - market price):
+                <span class="mono" id="max-entry-no-label">Don't buy NO when NO price above 85¢</span>
+            </label>
+            <div class="settings-inline-value">
+                <input id="max-entry-no-slider" type="range" min="0.55" max="1.00" step="0.01" value="{{ settings.max_entry_price_no }}">
+            </div>
+            <p class="text-muted" id="max-entry-no-market-floor">Don't buy NO when market YES &lt; 15.0%</p>
+            <p class="text-muted" id="max-entry-no-calc">At 85¢ entry with $20: --</p>
+        </div>
+    </article>
+
+    <article class="card settings-card">
+        <header class="panel-head">
+            <div>
+                <h3>Position Sizing</h3>
+                <p class="text-muted">Scale bet size by edge so thin-upside entries use less capital.</p>
+            </div>
+        </header>
+        <label class="toggle-row">
+            <span>Dynamic Position Sizing</span>
+            <span class="toggle-switch">
+                <input type="checkbox" id="dynamic-sizing-toggle">
+                <span class="toggle-slider"></span>
+            </span>
+        </label>
+        <p class="text-muted" id="dynamic-sizing-mode-text">OFF: Fixed dollar amount for every trade</p>
+        <div class="settings-field hidden" id="dynamic-sizing-table-wrap">
+            <p class="text-muted">Base size: <span class="mono" id="dynamic-sizing-base-size">$--</span></p>
+            <table class="table sizing-preview-table">
+                <thead>
+                    <tr>
+                        <th>Entry Price</th>
+                        <th>Edge</th>
+                        <th>Bet Size</th>
+                    </tr>
+                </thead>
+                <tbody id="dynamic-sizing-table-body"></tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="card settings-card">
+        <header class="panel-head">
+            <div>
+                <h3>Risk Guards</h3>
+                <p class="text-muted">Volatility safety controls for auto-trading behavior.</p>
+            </div>
+        </header>
+        <div class="settings-field">
+            <label for="max-reversal-risk-slider">
+                Max Reversal Risk:
+                <span class="mono" id="max-reversal-risk-label">Block auto-trades when reversal risk exceeds 65.0%</span>
+            </label>
+            <div class="settings-inline-value">
+                <input
+                    id="max-reversal-risk-slider"
+                    class="risk-guard-slider"
+                    type="range"
+                    min="0.20"
+                    max="1.00"
+                    step="0.05"
+                    value="{{ settings.max_reversal_risk }}"
+                >
+            </div>
+            <p class="settings-markers">
+                <span class="text-success">Strict (20-40%)</span>
+                <span class="text-warning">Moderate (40-65%)</span>
+                <span class="text-danger">Permissive (65-100%)</span>
+            </p>
+            <p class="text-muted">Higher = allows more volatile trades. Lower = only trades in calm trending conditions.</p>
+        </div>
+    </article>
+
+    <article class="card settings-card no-side-settings-card">
+        <div class="no-side-layout">
+            <div class="no-side-copy">
+                <h3>Experimental: NO-Side Trading</h3>
+                <p class="no-side-title">Enable NO-Side Auto-Trading</p>
+                <p class="text-muted">
+                    When enabled, the auto-trader will also place BUY NO trades when both models strongly agree the outcome is NO.
+                </p>
+                <div class="warning-banner no-side-warning">
+                    Historical analysis across 30,000 samples showed NO-side trades produce flat or negative PnL (+$0.00 avg). Enable only to collect live validation data.
+                </div>
+                <a href="/analytics" class="btn-ghost no-side-link">View NO-side performance →</a>
+            </div>
+            <div class="no-side-toggle-wrap">
+                <p class="text-muted">NO-Side Toggle</p>
+                <button type="button" class="no-side-toggle" id="no-side-toggle-btn" data-enabled="false">
+                    <span class="no-side-toggle-knob"></span>
+                </button>
+                <p class="mono" id="no-side-toggle-label">NO Trading: DISABLED</p>
+            </div>
+        </div>
+    </article>
+
+    <article class="card settings-card">
+        <div class="settings-field">
+            <button type="button" class="btn-ghost" id="advanced-toggle-btn">Advanced: Manual Override</button>
+            <div class="advanced-override hidden" id="advanced-override">
+                <div class="override-explain-box">
+                    <p><strong>How override works</strong></p>
+                    <p class="text-muted">
+                        When override is <strong>OFF</strong>: the Risk Profile above controls YES cutoff, NO cutoff, min/max seconds, and early entry.
+                    </p>
+                    <p class="text-muted">
+                        When override is <strong>ON</strong>: only the values below are used. The Risk Profile is completely ignored.
+                    </p>
+                    <p class="text-muted">
+                        Use override when you want custom thresholds that do not match any profile.
+                    </p>
+                </div>
+                <label class="toggle-row">
+                    <span>Override risk profile with manual settings</span>
+                    <span class="toggle-switch">
+                        <input type="checkbox" id="threshold-override-toggle" {% if settings.threshold_override %}checked{% endif %}>
+                        <span class="toggle-slider"></span>
+                    </span>
+                </label>
+
+                <div class="settings-field">
+                    <label for="yes-cutoff-slider">
+                        YES Cutoff: <span class="mono" id="yes-cutoff-value">--</span>
+                        <span class="text-muted override-profile-hint" id="override-yes-profile-hint"></span>
+                    </label>
+                    <div class="settings-inline-value">
+                        <input id="yes-cutoff-slider" type="range" min="0.50" max="0.90" step="0.01" value="{{ settings.yes_cutoff }}">
+                    </div>
+                </div>
+
+                <div class="settings-field">
+                    <label for="no-cutoff-slider">
+                        NO Cutoff: <span class="mono" id="no-cutoff-value">--</span>
+                        <span class="text-muted override-profile-hint" id="override-no-profile-hint"></span>
+                    </label>
+                    <div class="settings-inline-value">
+                        <input id="no-cutoff-slider" type="range" min="0.10" max="0.80" step="0.01" value="{{ settings.no_cutoff }}">
+                    </div>
+                </div>
+
+                <div class="settings-two-col">
+                    <label class="settings-field">
+                        <span>Min Seconds: <span class="mono" id="min-seconds-display">--</span> <span class="text-muted override-profile-hint" id="override-min-profile-hint"></span></span>
+                        <input id="min-seconds-input" type="number" min="0" max="300" value="{{ settings.min_seconds_to_close }}">
+                    </label>
+                    <label class="settings-field">
+                        <span>Max Seconds: <span class="mono" id="max-seconds-display">--</span> <span class="text-muted override-profile-hint" id="override-max-profile-hint"></span></span>
+                        <input id="max-seconds-input" type="number" min="0" max="900" value="{{ settings.max_seconds_to_close }}">
+                    </label>
+                </div>
+            </div>
+        </div>
+    </article>
+
+    <article class="card settings-card">
+        <header class="panel-head"><h3>Scheduler</h3></header>
+        <p><span class="badge {{ 'badge-success' if settings.scheduler_running else 'badge-danger' }}" id="scheduler-status-settings">{{ "RUNNING" if settings.scheduler_running else "STOPPED" }}</span></p>
+        <label class="settings-field">
+            <span class="settings-inline-label">
+                Poll Interval (seconds)
+                <span class="help-tooltip" tabindex="0" aria-label="How poll interval works">
+                    ?
+                    <span class="help-tooltip-popover">
+                        Poll interval controls how often the app checks Kalshi for new market data and evaluates signals.
+                        <br><br>
+                        15s (recommended): Checks 4x/minute. Fast enough to catch signals within the default 60-300s window.
+                        <br><br>
+                        Lower values: More responsive, more API calls.
+                        Higher values: Less load, small risk of missing a brief mispricing window.
+                        <br><br>
+                        Changing this requires restarting the scheduler (Stop + Start on this page).
+                    </span>
+                </span>
+            </span>
+            <input id="poll-interval-input" type="number" min="5" max="120" value="{{ settings.poll_interval_seconds }}">
+            <small class="text-muted">Changing this requires restarting the scheduler.</small>
+        </label>
+        <div class="settings-actions">
+            <button type="button" class="btn-primary" id="start-scheduler-btn">Start Scheduler</button>
+            <button type="button" class="btn-danger" id="stop-scheduler-btn">Stop Scheduler</button>
+        </div>
+    </article>
+
+    <article class="card settings-card">
+        <header class="panel-head">
+            <h3>Live Order Placement <span class="badge badge-danger">NOT IMPLEMENTED</span></h3>
+        </header>
+        <div class="success-banner">
+            ✓ Paper auto-trader is active — controlled from the Dashboard. It automatically places paper trades when signals fire, tracking simulated P&amp;L without real orders.
+        </div>
+        <div class="warning-banner">
+            Live order placement requires Kalshi API authentication and is not yet implemented. Your paper trading auto-trader (controlled from the Dashboard) is separate and fully functional — it simulates trades without real money.
+        </div>
+        <label class="toggle-row">
+            <span>Live Order Placement (requires API keys)</span>
+            <span class="toggle-switch">
+                <input type="checkbox" id="auto-trade-toggle" disabled>
+                <span class="toggle-slider"></span>
+            </span>
+        </label>
+        <p class="text-muted">No live orders will be placed from this page yet.</p>
+    </article>
+
+    <article class="card settings-card">
+        <header class="panel-head">
+            <h3>Model Information</h3>
+            <button type="button" class="btn-ghost" disabled title="Run python train_raw_model.py to retrain the model">Retrain Model</button>
+        </header>
+        <div class="warning-banner warning-banner-danger hidden" id="model-version-warning">⚠ sklearn version mismatch — retrain recommended</div>
+        <div class="settings-info-grid" id="model-info-grid">
+            <div>
+                <span class="text-muted">Model Type</span>
+                <p><span class="badge badge-info" id="model-type-badge">--</span></p>
+            </div>
+            <div><span class="text-muted">Trained At</span><p class="mono" id="model-trained-at">--</p></div>
+            <div><span class="text-muted">Accuracy</span><p class="mono" id="model-accuracy">--</p></div>
+            <div><span class="text-muted">ROC-AUC</span><p class="mono" id="model-roc-auc">--</p></div>
+            <div><span class="text-muted">Brier Score</span><p class="mono" id="model-brier">--</p></div>
+            <div><span class="text-muted">Train Size</span><p class="mono" id="model-train-size">--</p></div>
+            <div><span class="text-muted">Test Size</span><p class="mono" id="model-test-size">--</p></div>
+            <div><span class="text-muted">sklearn (saved)</span><p class="mono" id="model-sklearn-saved">--</p></div>
+            <div><span class="text-muted">sklearn (runtime)</span><p class="mono" id="model-sklearn-current">--</p></div>
+        </div>
+    </article>
+</section>
+
+<div id="settings-toast" class="toast" role="status" aria-live="polite"></div>
+<script src="{{ url_for('static', filename='js/settings.js') }}" defer></script>
+{% endblock %}

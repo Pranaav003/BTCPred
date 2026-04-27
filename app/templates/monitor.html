@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Monitor — Kalshi Signal{% endblock %}
+
+{% block content %}
+<section class="monitor-grid">
+    <article class="card system-status-card">
+        <div class="system-status-left">
+            <h3>System Status</h3>
+            <div class="status-pills">
+                <span class="badge {{ 'badge-success' if scheduler_running else 'badge-danger' }}" id="scheduler-status-pill">
+                    Scheduler: {{ "RUNNING" if scheduler_running else "STOPPED" }}
+                </span>
+                <span class="badge {{ 'badge-success' if model_loaded else 'badge-danger' }}" id="model-status-pill">
+                    Model: {{ "LOADED" if model_loaded else "NOT LOADED" }}
+                </span>
+                <span class="badge {{ 'badge-success' if auto_trade_enabled else 'badge-neutral' }}" id="auto-trade-status-pill">
+                    Auto-Trade: {{ "ON" if auto_trade_enabled else "OFF" }}
+                </span>
+                <span
+                    class="badge {{ 'badge-warning' if enable_no_signals else 'badge-neutral' }}"
+                    id="no-trading-status-pill"
+                    {% if not auto_trade_enabled %}style="display:none;"{% endif %}
+                >
+                    {{ "NO Trading: EXPERIMENTAL" if enable_no_signals else "YES Only" }}
+                </span>
+                <span class="badge {{ 'badge-warning' if pending_resolution > 0 else 'badge-success' }}" id="resolution-status-pill">
+                    {{ "Pending Resolution: " ~ pending_resolution if pending_resolution > 0 else "All Resolved" }}
+                </span>
+            </div>
+            <p class="text-muted monitor-pill-subtitle" id="auto-trade-pill-subtitle">(Paper trading)</p>
+        </div>
+        <div class="system-status-actions">
+            <button type="button" class="btn-primary" id="scheduler-start-btn" {% if not model_loaded %}disabled{% endif %}>Start Scheduler</button>
+            <button type="button" class="btn-danger" id="scheduler-stop-btn" {% if not model_loaded %}disabled{% endif %}>Stop Scheduler</button>
+            <button type="button" class="btn-ghost" id="resolution-trigger-btn">Trigger Resolution</button>
+        </div>
+    </article>
+
+    <div class="monitor-status-row">
+        <div class="monitor-portfolio-row" id="monitor-portfolio-row">
+            <span>Cash: <strong class="mono" id="monitor-cash">--</strong></span>
+            <span>Realized PnL: <strong class="mono" id="monitor-realized-pnl">--</strong></span>
+            <span>Open: <strong class="mono" id="monitor-open-positions">--</strong></span>
+            <span>Win Rate: <strong class="mono" id="monitor-win-rate">--</strong></span>
+        </div>
+        <article class="card monitor-resolution-compact">
+            <header class="panel-head"><h3>Resolution Summary</h3></header>
+            <div class="monitor-resolution-grid">
+                <div><span class="text-muted">Total</span><p class="mono" id="res-total-markets">--</p></div>
+                <div><span class="text-muted">Resolved</span><p class="mono" id="res-resolved-markets">--</p></div>
+                <div><span class="text-muted">Pending</span><p class="mono" id="res-pending-resolution">--</p></div>
+                <div><span class="text-muted">Future</span><p class="mono" id="res-unresolved-future">--</p></div>
+                <div><span class="text-muted">Last</span><p class="mono" id="res-last-resolved">--</p></div>
+            </div>
+        </article>
+        <article class="card monitor-data-collection-card">
+            <header class="panel-head"><h3>Data Collection</h3></header>
+            <p class="text-muted" id="data-collection-summary">
+                Live training data: -- rows collected | -- rows resolved | Ready to retrain: --
+            </p>
+            <div class="monitor-data-progress-wrap">
+                <div class="monitor-data-progress-bar">
+                    <div class="monitor-data-progress-fill" id="data-collection-progress-fill"></div>
+                </div>
+                <p class="text-muted" id="data-collection-progress-text">Need -- more resolved signals</p>
+            </div>
+            <button type="button" class="btn-primary hidden" id="data-collection-export-btn">Export &amp; Retrain</button>
+        </article>
+    </div>
+
+    <div class="monitor-banner-stack" id="monitor-banner-stack" aria-live="polite"></div>
+
+    <article class="card monitor-open-positions-card">
+        <header class="panel-head">
+            <h3>Open Positions <span class="badge badge-neutral" id="open-positions-count">0</span></h3>
+        </header>
+        <p class="text-muted">Held until the market resolves (not listed in Trade Activity below)</p>
+        <div class="monitor-activity-feed" id="monitor-open-positions-feed"></div>
+    </article>
+
+    <article class="card monitor-trade-activity-card">
+        <header class="panel-head">
+            <h3>Trade Activity <span class="badge badge-neutral" id="trade-activity-count">0</span></h3>
+        </header>
+        <p class="text-muted">Resolved trades only — closed positions with exit price and realized P&amp;L</p>
+        <p class="mono" id="trade-activity-summary">0 trades · 0 wins · 0 losses · Avg win: +$0.00 · Avg loss: -$0.00 · Net: +$0.00</p>
+        <p class="text-muted" id="trade-activity-ratio-warning">Loss ratio: --</p>
+        <div class="monitor-activity-feed" id="trade-activity-feed">
+            <p class="text-muted">No trade activity yet.</p>
+        </div>
+        <div class="table-controls analytics-table-controls">
+            <span class="text-muted mono" id="trade-activity-range">Showing 0-0 of 0 trades</span>
+            <button type="button" class="btn-ghost" id="trade-activity-prev">Prev</button>
+            <button type="button" class="btn-ghost" id="trade-activity-next">Next</button>
+        </div>
+    </article>
+
+</section>
+
+<div class="modal-backdrop" id="trade-snapshot-modal" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="trade-snapshot-modal-title">
+    <div class="modal-card trade-snapshot-modal-card">
+        <button type="button" class="trade-snapshot-close" id="trade-snapshot-close-x" aria-label="Close">✕</button>
+        <h3 id="trade-snapshot-modal-title" class="trade-snapshot-title">--</h3>
+        <div class="trade-snapshot-scroll">
+            <div class="trade-snapshot-stats-row" id="trade-snapshot-market-row">
+                <div><span class="text-muted">BTC Price</span><p class="mono" id="ts-btc">--</p></div>
+                <div><span class="text-muted">Seconds to Close</span><p class="mono" id="ts-sec">--</p></div>
+                <div><span class="text-muted">Reversal Risk</span><p class="mono" id="ts-rev">--</p></div>
+                <div><span class="text-muted">Confidence</span><p class="mono" id="ts-conf">--</p></div>
+            </div>
+            <section class="trade-snapshot-section">
+                <h4 class="trade-snapshot-h4">Signal Context</h4>
+                <p class="trade-snapshot-line" id="ts-mode-region">--</p>
+                <p class="trade-snapshot-reason" id="ts-reason">--</p>
+                <p class="trade-snapshot-gap" id="ts-gap">--</p>
+                <p class="trade-snapshot-line" id="ts-position-mult-main">--</p>
+                <p class="trade-snapshot-line text-muted" id="ts-position-mult-brk">--</p>
+            </section>
+            <section class="trade-snapshot-section">
+                <h4 class="trade-snapshot-h4">Probability Chart at Entry</h4>
+                <div class="trade-snapshot-chart-wrap">
+                    <canvas id="trade-snapshot-chart" height="200" aria-label="Market and model probability at entry"></canvas>
+                    <p class="text-muted trade-snapshot-chart-empty hidden" id="trade-snapshot-chart-empty">No chart history</p>
+                </div>
+            </section>
+            <section class="trade-snapshot-section">
+                <button type="button" class="trade-snapshot-collapse-btn" id="trade-snapshot-features-toggle" aria-expanded="false">
+                    <span id="trade-snapshot-features-chevron">▶</span> Raw Features
+                </button>
+                <div class="trade-snapshot-features-wrap hidden" id="trade-snapshot-features-wrap">
+                    <table class="table trade-snapshot-features-table">
+                        <thead><tr><th>Feature</th><th>Value</th></tr></thead>
+                        <tbody id="trade-snapshot-features-body"></tbody>
+                    </table>
+                </div>
+            </section>
+            <section class="trade-snapshot-section" id="trade-snapshot-outcome-section">
+                <h4 class="trade-snapshot-h4">Trade Outcome</h4>
+                <p class="mono" id="ts-outcome-prices">--</p>
+                <p class="mono" id="ts-outcome-pnl">--</p>
+                <p id="ts-outcome-label">--</p>
+            </section>
+        </div>
+        <p class="text-muted trade-snapshot-captured" id="ts-captured">Snapshot captured at --</p>
+        <div class="settings-actions" style="margin-top: 12px;">
+            <button type="button" class="btn-ghost" id="trade-snapshot-close-btn">Close</button>
+        </div>
+    </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/monitor.js') }}" defer></script>
+{% endblock %}

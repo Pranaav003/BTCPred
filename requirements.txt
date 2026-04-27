@@ -1,0 +1,12 @@
+flask
+flask-sqlalchemy
+apscheduler
+flask-apscheduler
+python-dotenv
+requests
+numpy
+pandas
+scikit-learn
+xgboost
+joblib
+gunicorn

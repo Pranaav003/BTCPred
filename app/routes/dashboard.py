@@ -1,0 +1,101 @@
+"""Dashboard page routes."""
+
+from flask import Blueprint, render_template
+
+from app.model_loader import get_model
+from app.models import AppSettings
+from app.resolver import get_resolution_summary
+
+dashboard_bp = Blueprint("dashboard", __name__)
+
+
+def _typed_settings() -> dict:
+    """Return runtime settings with typed values for templates."""
+    return {
+        "yes_cutoff": float(AppSettings.get("yes_cutoff", "0.65")),
+        "no_cutoff": float(AppSettings.get("no_cutoff", "0.35")),
+        "min_seconds_to_close": int(AppSettings.get("min_seconds_to_close", "30")),
+        "max_seconds_to_close": int(AppSettings.get("max_seconds_to_close", "180")),
+        "poll_interval_seconds": int(AppSettings.get("poll_interval_seconds", "15")),
+        "enable_no_signals": AppSettings.get("enable_no_signals", "false") == "true",
+        "auto_trade_enabled": AppSettings.get("auto_trade_enabled", "false") == "true",
+        "paper_trade_size": float(AppSettings.get("paper_trade_size", "10.0")),
+        "risk_profile": AppSettings.get("risk_profile", "moderate") or "moderate",
+        "signal_mode": AppSettings.get("signal_mode", "agreement") or "agreement",
+        "mispricing_threshold": float(AppSettings.get("mispricing_threshold", "0.10")),
+        "max_entry_price_yes": float(AppSettings.get("max_entry_price_yes", "0.85")),
+        "max_entry_price_no": float(AppSettings.get("max_entry_price_no", "0.85")),
+        "min_expected_profit": float(AppSettings.get("min_expected_profit", "0.10")),
+        "max_reversal_risk": float(AppSettings.get("max_reversal_risk", "0.65")),
+        "high_conviction_volatility_override": float(AppSettings.get("high_conviction_volatility_override", "0.80")),
+        "threshold_override": AppSettings.get("threshold_override", "false") == "true",
+        "scheduler_running": AppSettings.get("scheduler_running", "false") == "true",
+    }
+
+
+@dashboard_bp.route("/")
+def home() -> str:
+    return "Dashboard placeholder"
+
+
+@dashboard_bp.route("/dashboard")
+def dashboard():
+    scheduler_running = AppSettings.get("scheduler_running", "false") == "true"
+    poll_interval = int(AppSettings.get("poll_interval_seconds", "15"))
+
+    try:
+        get_model()
+        model_loaded = True
+    except RuntimeError:
+        model_loaded = False
+
+    auto_trade_enabled = AppSettings.get("auto_trade_enabled", "false") == "true"
+    enable_no_signals = AppSettings.get("enable_no_signals", "false") == "true"
+    resolution_summary = get_resolution_summary()
+    pending_resolution = int(resolution_summary.get("pending_resolution", 0) or 0)
+    paper_trading_enabled = AppSettings.get("paper_trading_enabled", "false") == "true"
+    paper_trade_size = float(AppSettings.get("paper_trade_size", "10.0"))
+
+    return render_template(
+        "dashboard.html",
+        scheduler_running=scheduler_running,
+        poll_interval=poll_interval,
+        model_loaded=model_loaded,
+        auto_trade_enabled=auto_trade_enabled,
+        enable_no_signals=enable_no_signals,
+        pending_resolution=pending_resolution,
+        paper_trading_enabled=paper_trading_enabled,
+        paper_trade_size=paper_trade_size,
+    )
+
+
+@dashboard_bp.route("/monitor")
+def monitor():
+    scheduler_running = AppSettings.get("scheduler_running", "false") == "true"
+    try:
+        get_model()
+        model_loaded = True
+    except RuntimeError:
+        model_loaded = False
+    auto_trade_enabled = AppSettings.get("auto_trade_enabled", "false") == "true"
+    enable_no_signals = AppSettings.get("enable_no_signals", "false") == "true"
+    resolution_summary = get_resolution_summary()
+    pending_resolution = int(resolution_summary.get("pending_resolution", 0) or 0)
+    return render_template(
+        "monitor.html",
+        scheduler_running=scheduler_running,
+        model_loaded=model_loaded,
+        auto_trade_enabled=auto_trade_enabled,
+        enable_no_signals=enable_no_signals,
+        pending_resolution=pending_resolution,
+    )
+
+
+@dashboard_bp.route("/analytics")
+def analytics():
+    return render_template("analytics.html", page_title="Analytics")
+
+
+@dashboard_bp.route("/settings")
+def settings():
+    return render_template("settings.html", settings=_typed_settings())
