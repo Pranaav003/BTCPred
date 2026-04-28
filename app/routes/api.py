@@ -742,11 +742,16 @@ def save_risk_profile(profile_name: str):
     if not isinstance(payload, dict):
         return jsonify({"error": "Body must be a JSON object"}), 400
 
-    yes_cutoff = float(payload.get("yes_cutoff", 0.65))
-    no_cutoff = float(payload.get("no_cutoff", 0.35))
-    min_seconds = int(payload.get("min_seconds", 60))
-    max_seconds = int(payload.get("max_seconds", 300))
-    early_entry_enabled = bool(payload.get("early_entry_enabled", False))
+    try:
+        yes_cutoff = float(payload.get("yes_cutoff", 0.65))
+        no_cutoff = float(payload.get("no_cutoff", 0.35))
+        min_seconds = int(payload.get("min_seconds", 60))
+        max_seconds = int(payload.get("max_seconds", 300))
+    except (TypeError, ValueError):
+        return jsonify({"error": "yes_cutoff/no_cutoff/min_seconds/max_seconds must be numeric"}), 400
+
+    early_raw = str(payload.get("early_entry_enabled", False)).strip().lower()
+    early_entry_enabled = early_raw in {"true", "1", "yes", "on"}
     early_min = payload.get("early_entry_min_seconds")
     early_max = payload.get("early_entry_max_seconds")
     early_cutoff = payload.get("early_entry_cutoff")
@@ -759,17 +764,23 @@ def save_risk_profile(profile_name: str):
     AppSettings.set(f"profile_override_{profile_name}_early_entry_enabled", "true" if early_entry_enabled else "false")
 
     if early_entry_enabled:
+        try:
+            early_min_int = int(early_min if early_min is not None else 0)
+            early_max_int = int(early_max if early_max is not None else 0)
+            early_cutoff_float = float(early_cutoff if early_cutoff is not None else yes_cutoff)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Early entry fields must be numeric when early entry is enabled"}), 400
         AppSettings.set(
             f"profile_override_{profile_name}_early_entry_min_seconds",
-            str(max(0, min(600, int(early_min if early_min is not None else 0)))),
+            str(max(0, min(600, early_min_int))),
         )
         AppSettings.set(
             f"profile_override_{profile_name}_early_entry_max_seconds",
-            str(max(0, min(900, int(early_max if early_max is not None else 0)))),
+            str(max(0, min(900, early_max_int))),
         )
         AppSettings.set(
             f"profile_override_{profile_name}_early_entry_cutoff",
-            f"{max(0.50, min(0.99, float(early_cutoff if early_cutoff is not None else yes_cutoff))):.4f}",
+            f"{max(0.50, min(0.99, early_cutoff_float)):.4f}",
         )
     else:
         for key in (
