@@ -15,6 +15,9 @@ from app.routes.dashboard import dashboard_bp
 
 def _ensure_signal_schema_columns(app: Flask) -> None:
     """Backfill additive Signal columns for existing SQLite databases."""
+    if db.engine.dialect.name != "sqlite":
+        # SQLite-specific ALTER backfill; Postgres should use model-managed schema.
+        return
     try:
         existing = db.session.execute(text("PRAGMA table_info(signals)")).fetchall()
         names = {row[1] for row in existing}
