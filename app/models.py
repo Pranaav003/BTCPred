@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, UTC
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.extensions import db
 
 
@@ -222,18 +224,30 @@ class AppSettings(db.Model):
     @classmethod
     def get(cls, key: str, default: str | None = None) -> str | None:
         """Get setting value by key or return default."""
-        row = cls.query.filter_by(key=key).first()
-        return row.value if row else default
+        try:
+            row = cls.query.filter_by(key=key).first()
+            return row.value if row else default
+        except SQLAlchemyError:
+            db.session.rollback()
+            try:
+                row = cls.query.filter_by(key=key).first()
+                return row.value if row else default
+            except SQLAlchemyError:
+                db.session.rollback()
+                return default
 
     @classmethod
     def set(cls, key: str, value: str | None) -> "AppSettings":
         """Upsert a setting and persist it."""
-        row = cls.query.filter_by(key=key).first()
-        if row is None:
-            row = cls(key=key, value=value)
-            db.session.add(row)
-        else:
-            row.value = value
-
-        db.session.commit()
-        return row
+        try:
+            row = cls.query.filter_by(key=key).first()
+            if row is None:
+                row = cls(key=key, value=value)
+                db.session.add(row)
+            else:
+                row.value = value
+            db.session.commit()
+            return row
+        except SQLAlchemyError:
+            db.session.rollback()
+            raise

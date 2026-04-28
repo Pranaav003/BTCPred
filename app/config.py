@@ -13,6 +13,11 @@ class BaseConfig:
     SECRET_KEY = os.getenv("SECRET_KEY", "change-me-in-production")
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///kalshi_signal.db")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+        "pool_use_lifo": True,
+    }
 
     POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
     YES_CUTOFF = float(os.getenv("YES_CUTOFF", "0.65"))
@@ -37,6 +42,18 @@ class ProductionConfig(BaseConfig):
     if uri.startswith("postgres://"):
         uri = uri.replace("postgres://", "postgresql://", 1)
     SQLALCHEMY_DATABASE_URI = uri
+    if uri.startswith("postgresql://"):
+        SQLALCHEMY_ENGINE_OPTIONS = {
+            **BaseConfig.SQLALCHEMY_ENGINE_OPTIONS,
+            "connect_args": {
+                "sslmode": "require",
+                "connect_timeout": 10,
+                "keepalives": 1,
+                "keepalives_idle": 30,
+                "keepalives_interval": 10,
+                "keepalives_count": 5,
+            },
+        }
 
 
 config_by_name = {
