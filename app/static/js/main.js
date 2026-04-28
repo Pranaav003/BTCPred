@@ -816,6 +816,7 @@ function syncAutoTradePill() {
 function updateVolatilityGuardUI() {
     const statusEl = document.getElementById("auto-trade-volatility-status");
     if (!statusEl) return;
+    const autoTraderEnabled = Boolean(state.paperEnabled && state.autoTradeEnabled);
     const risk = Number(state.reversalRisk);
     const maxReversal = Number(state.maxReversalRisk || 0.65);
     const blocked = Number.isFinite(risk) && risk > maxReversal;
@@ -825,7 +826,12 @@ function updateVolatilityGuardUI() {
         blocked
         && signal !== "NO SIGNAL"
         && (region === "model_bullish" || region === "model_bearish");
-    statusEl.classList.remove("text-success", "text-warning");
+    statusEl.classList.remove("text-success", "text-warning", "text-muted");
+    if (!autoTraderEnabled) {
+        statusEl.textContent = "Auto-trader inactive";
+        statusEl.classList.add("text-muted");
+        return;
+    }
     if (blocked && mispricingOverrideActive) {
         statusEl.textContent = `Mispricing override active — volatility ${(risk * 100).toFixed(1)}% exceeds agreement limit ${(maxReversal * 100).toFixed(1)}%`;
         statusEl.classList.add("text-success");
