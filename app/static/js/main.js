@@ -1399,10 +1399,15 @@ async function placeTrade(side, options = {}) {
 
 async function toggleAutoTrade(enabled) {
     const prev = state.autoTradeEnabled;
+    const payload = { auto_trade_enabled: enabled ? "true" : "false" };
+    if (enabled && !state.paperEnabled) {
+        // Auto-enable paper trading when user turns on auto-trader from dashboard.
+        payload.paper_trading_enabled = "true";
+    }
     const data = await apiFetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auto_trade_enabled: enabled ? "true" : "false" }),
+        body: JSON.stringify(payload),
     });
     if (!data) {
         state.autoTradeEnabled = prev;
@@ -1410,6 +1415,9 @@ async function toggleAutoTrade(enabled) {
         if (autoToggle) autoToggle.checked = prev;
         syncAutoTradePill();
         return showToast("Failed to update auto-trader", "error");
+    }
+    if (enabled && !state.paperEnabled) {
+        applyPaperEnabled(true);
     }
     state.autoTradeEnabled = enabled;
     syncAutoTradePill();
@@ -1426,7 +1434,7 @@ async function initPaperTradingState() {
     const autoToggle = document.getElementById("auto-trade-toggle");
     if (autoToggle) {
         autoToggle.checked = state.autoTradeEnabled;
-        autoToggle.disabled = !state.paperEnabled;
+        autoToggle.disabled = false;
     }
     const maxEntryYes = Number(settings?.max_entry_price_yes);
     const maxEntryNo = Number(settings?.max_entry_price_no);
