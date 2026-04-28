@@ -87,6 +87,12 @@ def poll_and_signal() -> None:
                 logger.warning("Live signal evaluation unavailable; model may not be loaded.")
                 return
             logger.debug("Signal evaluation result: %s", signal_to_dict(result))
+            logger.info(
+                "Signal result: %s, region=%s, reversal_risk=%.3f",
+                result.signal,
+                result.agreement_region,
+                float(snapshot.get("reversal_risk", 0.0) or 0.0),
+            )
             _latest_snapshot = snapshot
             _latest_signal = signal_to_dict(result)
 
@@ -178,6 +184,7 @@ def poll_and_signal() -> None:
                                 snapshot_data=snapshot_data,
                                 mispricing_gap=mispricing_gap,
                                 signal_mode=mode_str,
+                                volatility_override=("volatility override" in str(result.reason).lower()),
                             )
                             logger.info(
                                 "Auto-trade executed: %s %.2f contracts on %s | result=%s",

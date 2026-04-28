@@ -71,6 +71,7 @@ def compute_position_size(
     base_size,
     mispricing_gap: float = 0.0,
     signal_mode: str = "agreement",
+    volatility_override: bool = False,
 ):
     """Scale by edge, mispricing gap (mispricing mode), and cap at 40% of cash."""
     market_prob = float(p_market or 0.0)
@@ -108,6 +109,9 @@ def compute_position_size(
         mispricing_multiplier = 1.0
 
     final_multiplier = min(float(base_multiplier) * float(mispricing_multiplier), 3.0)
+    if volatility_override:
+        final_multiplier = min(final_multiplier, 1.0)
+        logger.info("Volatility override trade: capped at 1.0x")
     scaled_size = base * final_multiplier
     portfolio = Portfolio.get_or_create()
     max_size = float(portfolio.cash or 0.0) * 0.40
@@ -213,6 +217,7 @@ def execute_paper_trade(
     snapshot_data=None,
     mispricing_gap=None,
     signal_mode=None,
+    volatility_override: bool = False,
 ):
     """Execute a paper trade inside Flask app context."""
     normalized_side = str(side or "").upper()
@@ -290,6 +295,7 @@ def execute_paper_trade(
                 base_size=base_size,
                 mispricing_gap=mg,
                 signal_mode=mode,
+                volatility_override=bool(volatility_override),
             )
         else:
             effective_size = base_size

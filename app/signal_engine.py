@@ -479,85 +479,53 @@ def evaluate_ensemble_signal(
     confidence = abs(float(p_market) - 0.5) + abs(float(p_raw) - 0.5)
 
     result: SignalResult
-    if agreement_yes and yes_entry_ok:
-        if mispricing_bullish:
+    proposed_signal: str | None = None
+    region = "no_agreement"
+    signal_type: str | None = None
+
+    # 3) Determine proposed signal type before volatility guard.
+    if (agreement_yes or mispricing_bullish) and yes_entry_ok:
+        proposed_signal = "PAPER BUY YES"
+        if agreement_yes and mispricing_bullish:
             region = "agree_yes"
-            reason = (
-                f"Ensemble: Agreement ({p_market:.1%}) + "
-                f"Bullish gap ({gap:.1%}) at {p_market:.1%} entry"
-            )
+            signal_type = "agreement"
+        elif agreement_yes:
+            region = "agree_yes"
+            signal_type = "agreement"
         else:
-            region = "agree_yes"
-            reason = f"Ensemble: Agreement only ({p_market:.1%} mkt, {p_raw:.1%} model)"
-        result = SignalResult(
-            signal="PAPER BUY YES",
-            reason=reason,
-            agreement_region=region,
-            p_market=float(p_market),
-            p_raw=float(p_raw),
-            seconds_to_close=int(seconds_to_close),
-            entry_bucket=int(entry_bucket),
-            yes_cutoff=float(effective_cutoff),
-            no_cutoff=float(1.0 - effective_cutoff),
-            confidence=float(confidence),
-            p_market_source="unknown",
-        )
-
-    if mispricing_bullish and yes_entry_ok:
-        reason = (
-            f"Ensemble: Mispricing only — "
-            f"model ({p_raw:.1%}) exceeds market ({p_market:.1%}) by {gap:.1%}"
-        )
-        result = SignalResult(
-            signal="PAPER BUY YES",
-            reason=reason,
-            agreement_region="model_bullish",
-            p_market=float(p_market),
-            p_raw=float(p_raw),
-            seconds_to_close=int(seconds_to_close),
-            entry_bucket=int(entry_bucket),
-            yes_cutoff=float(effective_cutoff),
-            no_cutoff=float(1.0 - effective_cutoff),
-            confidence=float(confidence),
-            p_market_source="unknown",
-        )
-
-    if mispricing_bearish and no_entry_ok:
-        reason = (
-            f"Ensemble: Bearish gap — "
-            f"market ({p_market:.1%}) exceeds model ({p_raw:.1%}) by {(-gap):.1%}"
-        )
-        result = SignalResult(
-            signal="PAPER BUY NO",
-            reason=reason,
-            agreement_region="model_bearish",
-            p_market=float(p_market),
-            p_raw=float(p_raw),
-            seconds_to_close=int(seconds_to_close),
-            entry_bucket=int(entry_bucket),
-            yes_cutoff=float(effective_cutoff),
-            no_cutoff=float(1.0 - effective_cutoff),
-            confidence=float(confidence),
-            p_market_source="unknown",
-        )
-
-    parts: list[str] = []
-    if agreement_yes and not yes_entry_ok:
-        result = no_signal_result(
-            p_market,
-            p_raw,
-            seconds_to_close,
-            entry_bucket,
-            effective_cutoff,
-            1.0 - effective_cutoff,
-            "entry_filtered",
-            (
-                f"Entry blocked: YES at {float(p_market):.1%} > "
-                f"max {float(max_entry_yes):.1%}. "
-                f"At this price, {(1 - float(p_market)) * 100:.1f}¢ upside per contract."
-            ),
-        )
+            region = "model_bullish"
+            signal_type = "mispricing"
+    elif mispricing_bearish and no_entry_ok:
+        proposed_signal = "PAPER BUY NO"
+        region = "model_bearish"
+        signal_type = "mispricing"
     else:
+        parts: list[str] = []
+        if agreement_yes and not yes_entry_ok:
+            result = no_signal_result(
+                p_market,
+                p_raw,
+                seconds_to_close,
+                entry_bucket,
+                effective_cutoff,
+                1.0 - effective_cutoff,
+                "entry_filtered",
+                (
+                    f"Entry blocked: YES at {float(p_market):.1%} > "
+                    f"max {float(max_entry_yes):.1%}. "
+                    f"At this price, {(1 - float(p_market)) * 100:.1f}¢ upside per contract."
+                ),
+            )
+            logger.info(
+                "evaluate_ensemble_signal result: signal=%s, region=%s, volatility_guard_active=%s, mispricing_bullish=%s, mispricing_bearish=%s, gap=%.4f",
+                result.signal,
+                result.agreement_region,
+                volatility_guard_active,
+                mispricing_bullish,
+                mispricing_bearish,
+                gap,
+            )
+            return result
         if not agreement_yes:
             parts.append(
                 f"Agreement needs {(effective_cutoff - max(float(p_market), float(p_raw))) * 100:.1f}% more"
@@ -580,24 +548,87 @@ def evaluate_ensemble_signal(
             "no_agreement",
             " | ".join(parts) or "No conditions met",
         )
+        logger.info(
+            "evaluate_ensemble_signal result: signal=%s, region=%s, volatility_guard_active=%s, mispricing_bullish=%s, mispricing_bearish=%s, gap=%.4f",
+            result.signal,
+            result.agreement_region,
+            volatility_guard_active,
+            mispricing_bullish,
+            mispricing_bearish,
+            gap,
+        )
+        return result
 
-    if volatility_guard_active and result.signal in {"PAPER BUY YES", "PAPER BUY NO"}:
-        if result.agreement_region in {"agree_yes", "agree_no"}:
-            return SignalResult(
-                signal="NO SIGNAL",
-                reason="Volatility guard: reversal risk too high for agreement trade",
-                agreement_region="volatility_guard",
-                p_market=float(p_market),
-                p_raw=float(p_raw),
-                seconds_to_close=int(seconds_to_close),
-                entry_bucket=int(entry_bucket),
-                yes_cutoff=float(effective_cutoff),
-                no_cutoff=float(1.0 - effective_cutoff),
-                confidence=float(confidence),
-                p_market_source="unknown",
-            )
-        if result.agreement_region in {"model_bullish", "model_bearish"}:
-            result.reason += " [volatility override: mispricing allowed despite high reversal risk]"
+    # 4) Apply volatility guard after signal type is known.
+    if volatility_guard_active and signal_type == "agreement":
+        result = no_signal_result(
+            p_market,
+            p_raw,
+            seconds_to_close,
+            entry_bucket,
+            effective_cutoff,
+            1.0 - effective_cutoff,
+            "volatility_guard",
+            "Volatility guard: agreement trade blocked (reversal risk too high)",
+        )
+        logger.info(
+            "evaluate_ensemble_signal result: signal=%s, region=%s, volatility_guard_active=%s, mispricing_bullish=%s, mispricing_bearish=%s, gap=%.4f",
+            result.signal,
+            result.agreement_region,
+            volatility_guard_active,
+            mispricing_bullish,
+            mispricing_bearish,
+            gap,
+        )
+        return result
+
+    volatility_note = (
+        " [mispricing override: volatility guard bypassed]"
+        if (volatility_guard_active and signal_type == "mispricing")
+        else ""
+    )
+
+    # 5) Build final reason.
+    if region == "agree_yes" and signal_type == "agreement":
+        if agreement_yes and mispricing_bullish:
+            reason = f"Ensemble: Agreement + Bullish gap ({gap:.1%}) at {p_market:.1%} entry"
+        else:
+            reason = f"Ensemble: Agreement only ({p_market:.1%} mkt, {p_raw:.1%} model)"
+    elif region == "model_bullish":
+        reason = (
+            f"Ensemble: Mispricing — model ({p_raw:.1%}) exceeds market ({p_market:.1%}) by {gap:.1%}"
+            f"{volatility_note}"
+        )
+    elif region == "model_bearish":
+        reason = (
+            f"Ensemble: Bearish gap — market ({p_market:.1%}) exceeds model ({p_raw:.1%}) by {(-gap):.1%}"
+            f"{volatility_note}"
+        )
+    else:
+        reason = "No conditions met"
+
+    result = SignalResult(
+        signal=proposed_signal or "NO SIGNAL",
+        reason=reason,
+        agreement_region=region,
+        p_market=float(p_market),
+        p_raw=float(p_raw),
+        seconds_to_close=int(seconds_to_close),
+        entry_bucket=int(entry_bucket),
+        yes_cutoff=float(effective_cutoff),
+        no_cutoff=float(1.0 - effective_cutoff),
+        confidence=float(confidence),
+        p_market_source="unknown",
+    )
+    logger.info(
+        "evaluate_ensemble_signal result: signal=%s, region=%s, volatility_guard_active=%s, mispricing_bullish=%s, mispricing_bearish=%s, gap=%.4f",
+        result.signal,
+        result.agreement_region,
+        volatility_guard_active,
+        mispricing_bullish,
+        mispricing_bearish,
+        gap,
+    )
     return result
 
 
