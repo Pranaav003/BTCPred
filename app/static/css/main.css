@@ -358,6 +358,11 @@ a {
     outline: none;
 }
 
+.btn-sm {
+    padding: 6px 10px;
+    font-size: 0.78rem;
+}
+
 .text-muted {
     color: var(--text-secondary);
 }
@@ -850,6 +855,25 @@ a {
 .profile-card.active {
     border-color: var(--accent);
     background: rgba(59, 130, 246, 0.18);
+}
+
+.profile-card-editing {
+    cursor: default;
+}
+
+.profile-edit-btn {
+    margin-left: auto;
+}
+
+.profile-reset-btn {
+    border-color: rgba(239, 68, 68, 0.45);
+    color: #fecaca;
+}
+
+.profile-reset-btn:hover,
+.profile-reset-btn:focus-visible {
+    background: rgba(239, 68, 68, 0.18);
+    border-color: rgba(239, 68, 68, 0.65);
 }
 
 /* Settings: selection is shown only by border/tint (no text badges on cards). */

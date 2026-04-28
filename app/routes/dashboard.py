@@ -28,7 +28,6 @@ def _typed_settings() -> dict:
         "min_expected_profit": float(AppSettings.get("min_expected_profit", "0.10")),
         "max_reversal_risk": float(AppSettings.get("max_reversal_risk", "0.65")),
         "high_conviction_volatility_override": float(AppSettings.get("high_conviction_volatility_override", "0.80")),
-        "threshold_override": AppSettings.get("threshold_override", "false") == "true",
         "scheduler_running": AppSettings.get("scheduler_running", "false") == "true",
     }
 

@@ -13,6 +13,8 @@ const settingsState = {
     dynamicSizingEnabled: false,
     entryFilterSaveTimerId: null,
     reversalRiskSaveTimerId: null,
+    editingProfile: null,
+    draftProfile: null,
 };
 
 function showSettingsToast(message, type = "success") {
@@ -26,60 +28,46 @@ function showSettingsToast(message, type = "success") {
     }, 3000);
 }
 
-function setCutoffLabel(sliderId, valueId) {
-    const slider = document.getElementById(sliderId);
-    const value = document.getElementById(valueId);
-    if (!slider || !value) return;
-    value.textContent = `${(Number(slider.value) * 100).toFixed(1)}%`;
+function toTitleCase(name) {
+    return String(name || "")
+        .split("_")
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
 }
 
-function getActiveProfileSnapshot() {
-    const name = settingsState.activeRiskProfile || "moderate";
-    const p = settingsState.riskProfiles?.[name];
-    if (!p) {
-        return { yes_cutoff: 0.65, no_cutoff: 0.35, min_seconds: 60, max_seconds: 300 };
-    }
+function normalizeProfileForEdit(profile) {
     return {
-        yes_cutoff: Number(p.yes_cutoff),
-        no_cutoff: Number(p.no_cutoff),
-        min_seconds: Number(p.min_seconds),
-        max_seconds: Number(p.max_seconds),
+        yes_cutoff: Number(profile?.yes_cutoff ?? 0.65),
+        no_cutoff: Number(profile?.no_cutoff ?? 0.35),
+        min_seconds: Number(profile?.min_seconds ?? 60),
+        max_seconds: Number(profile?.max_seconds ?? 300),
+        early_entry_enabled: Boolean(profile?.early_entry_enabled),
+        early_entry_min_seconds: profile?.early_entry_min_seconds == null ? "" : Number(profile.early_entry_min_seconds),
+        early_entry_max_seconds: profile?.early_entry_max_seconds == null ? "" : Number(profile.early_entry_max_seconds),
+        early_entry_cutoff: profile?.early_entry_cutoff == null ? "" : Number(profile.early_entry_cutoff),
     };
 }
 
-function updateOverrideProfileHints() {
-    const snap = getActiveProfileSnapshot();
-    const yesHint = document.getElementById("override-yes-profile-hint");
-    const noHint = document.getElementById("override-no-profile-hint");
-    const minHint = document.getElementById("override-min-profile-hint");
-    const maxHint = document.getElementById("override-max-profile-hint");
-    if (yesHint) {
-        yesHint.textContent = `(profile default: ${(snap.yes_cutoff * 100).toFixed(0)}%)`;
-    }
-    if (noHint) {
-        noHint.textContent = `(profile default: ${(snap.no_cutoff * 100).toFixed(0)}%)`;
-    }
-    if (minHint) {
-        minHint.textContent = `(profile default: ${Math.round(snap.min_seconds)}s)`;
-    }
-    if (maxHint) {
-        maxHint.textContent = `(profile default: ${Math.round(snap.max_seconds)}s)`;
-    }
+function profileDirty(profileName) {
+    if (!settingsState.editingProfile || settingsState.editingProfile !== profileName || !settingsState.draftProfile) return false;
+    const baseline = normalizeProfileForEdit(settingsState.riskProfiles?.[profileName] || {});
+    const draft = settingsState.draftProfile;
+    return JSON.stringify(baseline) !== JSON.stringify(draft);
 }
 
-function updateSecondsOverrideDisplays() {
-    const minIn = document.getElementById("min-seconds-input");
-    const maxIn = document.getElementById("max-seconds-input");
-    const minDis = document.getElementById("min-seconds-display");
-    const maxDis = document.getElementById("max-seconds-display");
-    if (minIn && minDis) {
-        const v = Number(minIn.value);
-        minDis.textContent = Number.isFinite(v) ? `${Math.round(v)}s` : "--";
-    }
-    if (maxIn && maxDis) {
-        const v = Number(maxIn.value);
-        maxDis.textContent = Number.isFinite(v) ? `${Math.round(v)}s` : "--";
-    }
+function renderProfileTimeline(minSeconds, maxSeconds) {
+    const min = Math.max(0, Math.min(900, Number(minSeconds || 0)));
+    const max = Math.max(0, Math.min(900, Number(maxSeconds || 0)));
+    const left = `${(min / 900) * 100}%`;
+    const width = `${Math.max(0, ((max - min) / 900) * 100)}%`;
+    return `
+        <div class="timeline-wrap">
+            <div class="timeline-base">
+                <div class="timeline-active" style="left: ${left}; width: ${width};"></div>
+            </div>
+            <div class="timeline-labels"><span>0s</span><span>300s</span><span>600s</span><span>900s</span></div>
+        </div>
+    `;
 }
 
 function updateMispricingThresholdLabel() {
@@ -208,14 +196,6 @@ function updateLastSavedLabel() {
     el.textContent = secs === 0 ? "Last saved: just now" : `Last saved: ${secs}s ago`;
 }
 
-function setAdvancedOverrideVisible() {
-    const toggle = document.getElementById("threshold-override-toggle");
-    const section = document.getElementById("advanced-override");
-    if (!toggle || !section) return;
-    section.classList.toggle("hidden", !toggle.checked);
-    section.classList.toggle("override-enabled", toggle.checked);
-}
-
 function applyNoSideState(enabled) {
     settingsState.enableNoSignals = Boolean(enabled);
     const toggleBtn = document.getElementById("no-side-toggle-btn");
@@ -266,41 +246,186 @@ function renderRiskProfiles() {
         .filter((name) => profiles[name])
         .map((name) => {
             const profile = profiles[name];
-            const title = name
-                .split("_")
-                .map((part) => part[0].toUpperCase() + part.slice(1))
-                .join(" ");
+            const title = toTitleCase(name);
             const thresholdPct = (Number(profile.yes_cutoff) * 100).toFixed(0);
             const hasEarly = Boolean(profile.early_entry_enabled && profile.early_entry_min_seconds && profile.early_entry_max_seconds && profile.early_entry_cutoff);
             const earlyLine = hasEarly
-                ? `${Math.round(Number(profile.early_entry_min_seconds) / 60)}–${Math.round(Number(profile.early_entry_max_seconds) / 60)} min @ ${(Number(profile.early_entry_cutoff) * 100).toFixed(0)}%`
+                ? `${Math.round(Number(profile.early_entry_min_seconds))}s-${Math.round(Number(profile.early_entry_max_seconds))}s @ ${(Number(profile.early_entry_cutoff) * 100).toFixed(0)}%`
                 : "None";
+            const isEditing = settingsState.editingProfile === name;
+            const customizedBadge = profile.customized ? `<span class="badge badge-warning">Customized</span>` : "";
+            if (!isEditing) {
+                return `
+                    <div class="profile-card ${active === name ? "active" : ""}" data-profile="${name}">
+                        <div class="profile-head">
+                            <h4>${title} ${customizedBadge}</h4>
+                            <button type="button" class="btn-ghost btn-sm profile-edit-btn" data-edit-profile="${name}" title="Edit profile">✎ Edit</button>
+                        </div>
+                        <div class="profile-stat-list">
+                            <p>Threshold: <span class="mono">${thresholdPct}%</span></p>
+                            <p>Window: <span class="mono">${profile.min_seconds}s - ${profile.max_seconds}s</span></p>
+                            <p class="${hasEarly ? "profile-early-entry-enabled" : "text-muted"}">Early Entry: <span class="mono">${earlyLine}</span></p>
+                        </div>
+                        <p class="risk-desc">${profile.description || ""}</p>
+                    </div>
+                `;
+            }
+            const draft = settingsState.draftProfile || normalizeProfileForEdit(profile);
+            const showEarly = Boolean(draft.early_entry_enabled);
+            const hasEarlyFields = name === "aggressive" || name === "high_conviction";
             return `
-                <button type="button" class="profile-card ${active === name ? "active" : ""}" data-profile="${name}">
+                <div class="profile-card profile-card-editing ${active === name ? "active" : ""}" data-profile="${name}">
                     <div class="profile-head">
                         <h4>${title}</h4>
                     </div>
-                    <div class="profile-stat-list">
-                        <p>Threshold: <span class="mono">${thresholdPct}%</span></p>
-                        <p>Window: <span class="mono">${profile.min_seconds}s - ${profile.max_seconds}s</span></p>
-                        <p class="${hasEarly ? "profile-early-entry-enabled" : "text-muted"}">
-                            Early Entry: <span class="mono">${earlyLine}</span>
-                        </p>
+                    <div class="settings-field">
+                        <label>YES Threshold: <span class="mono">${(Number(draft.yes_cutoff) * 100).toFixed(1)}%</span></label>
+                        <input type="range" min="0.50" max="0.90" step="0.01" value="${Number(draft.yes_cutoff)}" data-field="yes_cutoff" data-profile-edit="${name}">
                     </div>
-                    <p class="risk-desc">${profile.description || ""}</p>
-                </button>
+                    <div class="settings-two-col">
+                        <label class="settings-field"><span>Min seconds</span><input type="number" min="0" max="300" value="${Number(draft.min_seconds)}" data-field="min_seconds" data-profile-edit="${name}"></label>
+                        <label class="settings-field"><span>Max seconds</span><input type="number" min="60" max="900" value="${Number(draft.max_seconds)}" data-field="max_seconds" data-profile-edit="${name}"></label>
+                    </div>
+                    ${renderProfileTimeline(draft.min_seconds, draft.max_seconds)}
+                    ${hasEarlyFields ? `
+                        <div class="settings-field">
+                            <label class="toggle-row">
+                                <span>Enable early entry</span>
+                                <span class="toggle-switch">
+                                    <input type="checkbox" ${showEarly ? "checked" : ""} data-field="early_entry_enabled" data-profile-edit="${name}">
+                                    <span class="toggle-slider"></span>
+                                </span>
+                            </label>
+                            ${showEarly ? `
+                                <div class="settings-two-col">
+                                    <label class="settings-field"><span>Early min seconds</span><input type="number" min="0" max="900" value="${draft.early_entry_min_seconds}" data-field="early_entry_min_seconds" data-profile-edit="${name}"></label>
+                                    <label class="settings-field"><span>Early max seconds</span><input type="number" min="0" max="900" value="${draft.early_entry_max_seconds}" data-field="early_entry_max_seconds" data-profile-edit="${name}"></label>
+                                </div>
+                                <label class="settings-field">
+                                    <span>Early entry cutoff: <span class="mono">${draft.early_entry_cutoff === "" ? "--" : `${(Number(draft.early_entry_cutoff) * 100).toFixed(1)}%`}</span></span>
+                                    <input type="range" min="0.50" max="0.90" step="0.01" value="${draft.early_entry_cutoff === "" ? 0.80 : Number(draft.early_entry_cutoff)}" data-field="early_entry_cutoff" data-profile-edit="${name}">
+                                </label>
+                            ` : `<p class="text-muted">None</p>`}
+                        </div>
+                    ` : ""}
+                    <div class="settings-actions">
+                        <button type="button" class="btn-primary" data-profile-save="${name}">Save</button>
+                        <button type="button" class="btn-ghost" data-profile-cancel="${name}">Cancel</button>
+                        <button type="button" class="btn-ghost profile-reset-btn" data-profile-reset="${name}">Reset to defaults</button>
+                    </div>
+                </div>
             `;
         });
     grid.innerHTML = cards.join("");
     Array.from(grid.querySelectorAll(".profile-card")).forEach((card) => {
-        card.addEventListener("click", async () => {
+        card.addEventListener("click", async (event) => {
+            if (event.target.closest(".profile-edit-btn") || event.target.closest("[data-profile-edit]") || event.target.closest("[data-profile-save]") || event.target.closest("[data-profile-cancel]") || event.target.closest("[data-profile-reset]")) return;
             const profileValue = String(card.getAttribute("data-profile") || "moderate").toLowerCase();
             await savePartialSettings({ risk_profile: profileValue });
             settingsState.activeRiskProfile = profileValue || "moderate";
             renderRiskProfiles();
-            updateOverrideProfileHints();
             applyNoSideState(settingsState.enableNoSignals);
             showSettingsToast(`Risk profile set to ${profileValue}`, "success");
+        });
+    });
+    Array.from(grid.querySelectorAll(".profile-edit-btn")).forEach((btn) => {
+        btn.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const profileName = String(btn.getAttribute("data-edit-profile") || "");
+            if (!profileName) return;
+            if (settingsState.editingProfile && settingsState.editingProfile !== profileName && profileDirty(settingsState.editingProfile)) {
+                const okay = window.confirm("Discard unsaved changes on current profile?");
+                if (!okay) return;
+            }
+            settingsState.editingProfile = profileName;
+            settingsState.draftProfile = normalizeProfileForEdit(settingsState.riskProfiles?.[profileName] || {});
+            renderRiskProfiles();
+        });
+    });
+    Array.from(grid.querySelectorAll("[data-profile-edit]")).forEach((input) => {
+        input.addEventListener("input", () => {
+            const field = String(input.getAttribute("data-field") || "");
+            if (!field || !settingsState.draftProfile) return;
+            if (input.type === "checkbox") settingsState.draftProfile[field] = input.checked;
+            else settingsState.draftProfile[field] = input.value === "" ? "" : Number(input.value);
+            renderRiskProfiles();
+        });
+    });
+    Array.from(grid.querySelectorAll("[data-profile-cancel]")).forEach((btn) => {
+        btn.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const profileName = String(btn.getAttribute("data-profile-cancel") || "");
+            if (profileDirty(profileName)) {
+                const okay = window.confirm("Discard unsaved changes?");
+                if (!okay) return;
+            }
+            settingsState.editingProfile = null;
+            settingsState.draftProfile = null;
+            renderRiskProfiles();
+        });
+    });
+    Array.from(grid.querySelectorAll("[data-profile-save]")).forEach((btn) => {
+        btn.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const profileName = String(btn.getAttribute("data-profile-save") || "");
+            if (!profileName || !settingsState.draftProfile) return;
+            const draft = settingsState.draftProfile;
+            const payload = {
+                yes_cutoff: Number(draft.yes_cutoff),
+                no_cutoff: Number(1 - Number(draft.yes_cutoff)),
+                min_seconds: Math.max(0, Math.min(300, Number(draft.min_seconds))),
+                max_seconds: Math.max(60, Math.min(900, Number(draft.max_seconds))),
+                early_entry_enabled: Boolean(draft.early_entry_enabled),
+                early_entry_min_seconds: draft.early_entry_enabled ? Number(draft.early_entry_min_seconds || 0) : null,
+                early_entry_max_seconds: draft.early_entry_enabled ? Number(draft.early_entry_max_seconds || 0) : null,
+                early_entry_cutoff: draft.early_entry_enabled ? Number(draft.early_entry_cutoff || draft.yes_cutoff) : null,
+            };
+            try {
+                const response = await fetch(`/api/risk-profiles/${profileName}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Accept: "application/json" },
+                    body: JSON.stringify(payload),
+                });
+                if (!response.ok) throw new Error("Failed to save profile");
+                const refreshed = await fetch("/api/risk-profiles", { headers: { Accept: "application/json" } });
+                const profileData = await refreshed.json();
+                settingsState.riskProfiles = profileData?.profiles || settingsState.riskProfiles;
+                settingsState.editingProfile = null;
+                settingsState.draftProfile = null;
+                renderRiskProfiles();
+                showSettingsToast("Profile updated", "success");
+            } catch (error) {
+                showSettingsToast(`Failed to update profile: ${error.message}`, "error");
+            }
+        });
+    });
+    Array.from(grid.querySelectorAll("[data-profile-reset]")).forEach((btn) => {
+        btn.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const profileName = String(btn.getAttribute("data-profile-reset") || "");
+            if (!profileName) return;
+            const ok = window.confirm(`Reset ${toTitleCase(profileName)} to default values? This cannot be undone.`);
+            if (!ok) return;
+            try {
+                const response = await fetch(`/api/risk-profiles/${profileName}/reset`, {
+                    method: "DELETE",
+                    headers: { Accept: "application/json" },
+                });
+                if (!response.ok) throw new Error("Failed to reset profile");
+                const refreshed = await fetch("/api/risk-profiles", { headers: { Accept: "application/json" } });
+                const profileData = await refreshed.json();
+                settingsState.riskProfiles = profileData?.profiles || settingsState.riskProfiles;
+                settingsState.editingProfile = null;
+                settingsState.draftProfile = null;
+                renderRiskProfiles();
+                showSettingsToast("Profile reset to defaults", "success");
+            } catch (error) {
+                showSettingsToast(`Reset failed: ${error.message}`, "error");
+            }
         });
     });
 }
@@ -318,14 +443,8 @@ async function savePartialSettings(payload) {
 }
 
 async function saveSettings() {
-    const thresholdOverride = document.getElementById("threshold-override-toggle")?.checked ?? false;
     const payload = {
         risk_profile: settingsState.activeRiskProfile,
-        threshold_override: thresholdOverride,
-        yes_cutoff: Number(document.getElementById("yes-cutoff-slider")?.value || 0.65),
-        no_cutoff: Number(document.getElementById("no-cutoff-slider")?.value || 0.35),
-        min_seconds_to_close: Number(document.getElementById("min-seconds-input")?.value || 30),
-        max_seconds_to_close: Number(document.getElementById("max-seconds-input")?.value || 180),
         poll_interval_seconds: Number(document.getElementById("poll-interval-input")?.value || 15),
         enable_no_signals: settingsState.enableNoSignals,
         paper_trade_size: Number(settingsState.settings.paper_trade_size || 5.0),
@@ -430,33 +549,7 @@ async function initRiskProfileSettings() {
         settingsState.maxReversalRisk = Number(settingsData?.max_reversal_risk || 0.65);
         settingsState.dynamicSizingEnabled = (settingsData?.dynamic_sizing_enabled || "false") === "true";
 
-        const override = (settingsData?.threshold_override || "false") === "true";
-        const overrideToggle = document.getElementById("threshold-override-toggle");
-        if (overrideToggle) {
-            overrideToggle.checked = override;
-        }
-        setAdvancedOverrideVisible();
         renderRiskProfiles();
-        const yesSlider = document.getElementById("yes-cutoff-slider");
-        const noSlider = document.getElementById("no-cutoff-slider");
-        const minSecEl = document.getElementById("min-seconds-input");
-        const maxSecEl = document.getElementById("max-seconds-input");
-        if (yesSlider && settingsData.yes_cutoff != null && settingsData.yes_cutoff !== "") {
-            yesSlider.value = String(Number(settingsData.yes_cutoff));
-        }
-        if (noSlider && settingsData.no_cutoff != null && settingsData.no_cutoff !== "") {
-            noSlider.value = String(Number(settingsData.no_cutoff));
-        }
-        if (minSecEl && settingsData.min_seconds_to_close != null && settingsData.min_seconds_to_close !== "") {
-            minSecEl.value = String(Number(settingsData.min_seconds_to_close));
-        }
-        if (maxSecEl && settingsData.max_seconds_to_close != null && settingsData.max_seconds_to_close !== "") {
-            maxSecEl.value = String(Number(settingsData.max_seconds_to_close));
-        }
-        setCutoffLabel("yes-cutoff-slider", "yes-cutoff-value");
-        setCutoffLabel("no-cutoff-slider", "no-cutoff-value");
-        updateSecondsOverrideDisplays();
-        updateOverrideProfileHints();
         applyNoSideState(settingsState.enableNoSignals);
         const mispricingSlider = document.getElementById("mispricing-threshold-slider");
         if (mispricingSlider && Number.isFinite(settingsState.mispricingThreshold)) {
@@ -479,40 +572,6 @@ async function initRiskProfileSettings() {
 }
 
 function wireInputs() {
-    ["yes-cutoff-slider", "no-cutoff-slider"].forEach((id) => {
-        const slider = document.getElementById(id);
-        if (slider) slider.addEventListener("input", () => {
-            setCutoffLabel("yes-cutoff-slider", "yes-cutoff-value");
-            setCutoffLabel("no-cutoff-slider", "no-cutoff-value");
-        });
-    });
-    const advancedBtn = document.getElementById("advanced-toggle-btn");
-    const advancedPanel = document.getElementById("advanced-override");
-    const overrideToggle = document.getElementById("threshold-override-toggle");
-    if (advancedBtn && advancedPanel) {
-        advancedBtn.addEventListener("click", () => {
-            advancedPanel.classList.toggle("hidden");
-            if (!advancedPanel.classList.contains("hidden")) {
-                setCutoffLabel("yes-cutoff-slider", "yes-cutoff-value");
-                setCutoffLabel("no-cutoff-slider", "no-cutoff-value");
-                updateSecondsOverrideDisplays();
-                updateOverrideProfileHints();
-            }
-        });
-    }
-    if (overrideToggle) {
-        overrideToggle.addEventListener("change", async () => {
-            setAdvancedOverrideVisible();
-            try {
-                await savePartialSettings({ threshold_override: overrideToggle.checked ? "true" : "false" });
-                setAdvancedOverrideVisible();
-                updateOverrideProfileHints();
-                showSettingsToast("Override setting updated", "success");
-            } catch (error) {
-                showSettingsToast(`Failed to update override: ${error.message}`, "error");
-            }
-        });
-    }
     const noSideToggleBtn = document.getElementById("no-side-toggle-btn");
     if (noSideToggleBtn) {
         noSideToggleBtn.addEventListener("click", async () => {
@@ -599,24 +658,9 @@ function wireInputs() {
             }
         });
     }
-    const minSecInput = document.getElementById("min-seconds-input");
-    const maxSecInput = document.getElementById("max-seconds-input");
-    if (minSecInput) {
-        minSecInput.addEventListener("input", () => {
-            updateSecondsOverrideDisplays();
-        });
-    }
-    if (maxSecInput) {
-        maxSecInput.addEventListener("input", () => {
-            updateSecondsOverrideDisplays();
-        });
-    }
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
-    setCutoffLabel("yes-cutoff-slider", "yes-cutoff-value");
-    setCutoffLabel("no-cutoff-slider", "no-cutoff-value");
-    updateSecondsOverrideDisplays();
     updateMispricingThresholdLabel();
     updateEntryFilterPreview();
     updateDynamicSizingPreview();

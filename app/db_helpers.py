@@ -216,7 +216,6 @@ def seed_default_settings() -> None:
         "min_expected_profit": "0.10",
         "max_reversal_risk": "0.65",
         "high_conviction_volatility_override": "0.80",
-        "threshold_override": "false",
         "scheduler_running": "false",
     }
 

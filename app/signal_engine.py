@@ -59,6 +59,44 @@ RISK_PROFILES = {
     },
 }
 
+PROFILE_OVERRIDE_FIELDS = (
+    "yes_cutoff",
+    "no_cutoff",
+    "min_seconds",
+    "max_seconds",
+    "early_entry_enabled",
+    "early_entry_min_seconds",
+    "early_entry_max_seconds",
+    "early_entry_cutoff",
+    "description",
+)
+
+
+def get_profile(profile_name: str) -> dict[str, Any]:
+    """Return profile merged with AppSettings overrides."""
+    from app.models import AppSettings
+
+    normalized = (profile_name or "moderate").strip().lower()
+    base = RISK_PROFILES.get(normalized, RISK_PROFILES["moderate"]).copy()
+    for key in PROFILE_OVERRIDE_FIELDS:
+        setting_key = f"profile_override_{normalized}_{key}"
+        saved = AppSettings.get(setting_key)
+        if saved is None:
+            continue
+        if key in {"yes_cutoff", "no_cutoff", "early_entry_cutoff"}:
+            base[key] = float(saved)
+        elif key in {"min_seconds", "max_seconds", "early_entry_min_seconds", "early_entry_max_seconds"}:
+            text = str(saved).strip()
+            if text and (text.isdigit() or (text.startswith("-") and text[1:].isdigit())):
+                base[key] = int(text)
+            else:
+                base[key] = None
+        elif key == "early_entry_enabled":
+            base[key] = str(saved).strip().lower() == "true"
+        else:
+            base[key] = saved
+    return base
+
 
 @dataclass
 class SignalResult:
@@ -642,7 +680,7 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
 
     risk_profile = (AppSettings.get("risk_profile", "moderate") or "moderate").strip().lower()
     logger.info("risk_profile from DB: '%s'", risk_profile)
-    profile = RISK_PROFILES.get(risk_profile, RISK_PROFILES["moderate"])
+    profile = get_profile(risk_profile)
     logger.info(
         "Profile loaded: %s, min=%s, max=%s, early=%s",
         risk_profile,
@@ -726,12 +764,12 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
             p_raw=p_raw,
             seconds_to_close=seconds_to_close,
             entry_bucket=entry_bucket,
-            yes_cutoff=profile["yes_cutoff"],
+            yes_cutoff=float(profile["yes_cutoff"]),
             max_entry_yes=max_entry_yes,
             max_entry_no=max_entry_no,
             mispricing_threshold=mispricing_threshold,
-            min_seconds=profile["min_seconds"],
-            max_seconds=profile["max_seconds"],
+            min_seconds=int(profile["min_seconds"]),
+            max_seconds=int(profile["max_seconds"]),
             early_entry_enabled=bool(profile.get("early_entry_enabled", False)),
             early_entry_min=int(profile.get("early_entry_min_seconds") or 300),
             early_entry_max=int(profile.get("early_entry_max_seconds") or 600),

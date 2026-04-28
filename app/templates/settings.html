@@ -189,64 +189,6 @@
     </article>
 
     <article class="card settings-card">
-        <div class="settings-field">
-            <button type="button" class="btn-ghost" id="advanced-toggle-btn">Advanced: Manual Override</button>
-            <div class="advanced-override hidden" id="advanced-override">
-                <div class="override-explain-box">
-                    <p><strong>How override works</strong></p>
-                    <p class="text-muted">
-                        When override is <strong>OFF</strong>: the Risk Profile above controls YES cutoff, NO cutoff, min/max seconds, and early entry.
-                    </p>
-                    <p class="text-muted">
-                        When override is <strong>ON</strong>: only the values below are used. The Risk Profile is completely ignored.
-                    </p>
-                    <p class="text-muted">
-                        Use override when you want custom thresholds that do not match any profile.
-                    </p>
-                </div>
-                <label class="toggle-row">
-                    <span>Override risk profile with manual settings</span>
-                    <span class="toggle-switch">
-                        <input type="checkbox" id="threshold-override-toggle" {% if settings.threshold_override %}checked{% endif %}>
-                        <span class="toggle-slider"></span>
-                    </span>
-                </label>
-
-                <div class="settings-field">
-                    <label for="yes-cutoff-slider">
-                        YES Cutoff: <span class="mono" id="yes-cutoff-value">--</span>
-                        <span class="text-muted override-profile-hint" id="override-yes-profile-hint"></span>
-                    </label>
-                    <div class="settings-inline-value">
-                        <input id="yes-cutoff-slider" type="range" min="0.50" max="0.90" step="0.01" value="{{ settings.yes_cutoff }}">
-                    </div>
-                </div>
-
-                <div class="settings-field">
-                    <label for="no-cutoff-slider">
-                        NO Cutoff: <span class="mono" id="no-cutoff-value">--</span>
-                        <span class="text-muted override-profile-hint" id="override-no-profile-hint"></span>
-                    </label>
-                    <div class="settings-inline-value">
-                        <input id="no-cutoff-slider" type="range" min="0.10" max="0.80" step="0.01" value="{{ settings.no_cutoff }}">
-                    </div>
-                </div>
-
-                <div class="settings-two-col">
-                    <label class="settings-field">
-                        <span>Min Seconds: <span class="mono" id="min-seconds-display">--</span> <span class="text-muted override-profile-hint" id="override-min-profile-hint"></span></span>
-                        <input id="min-seconds-input" type="number" min="0" max="300" value="{{ settings.min_seconds_to_close }}">
-                    </label>
-                    <label class="settings-field">
-                        <span>Max Seconds: <span class="mono" id="max-seconds-display">--</span> <span class="text-muted override-profile-hint" id="override-max-profile-hint"></span></span>
-                        <input id="max-seconds-input" type="number" min="0" max="900" value="{{ settings.max_seconds_to_close }}">
-                    </label>
-                </div>
-            </div>
-        </div>
-    </article>
-
-    <article class="card settings-card">
         <header class="panel-head"><h3>Scheduler</h3></header>
         <p><span class="badge {{ 'badge-success' if settings.scheduler_running else 'badge-danger' }}" id="scheduler-status-settings">{{ "RUNNING" if settings.scheduler_running else "STOPPED" }}</span></p>
         <label class="settings-field">

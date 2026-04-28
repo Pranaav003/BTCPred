@@ -17,7 +17,7 @@ from app.db_helpers import export_training_data, get_probability_history, get_re
 from app.feature_engineering import get_live_snapshot
 from app.kalshi_client import get_active_market, get_btc_price, get_market_prices
 from app.model_loader import get_model
-from app.models import AppSettings, Market, PaperTrade, Signal, TradeSnapshot
+from app.models import AppSettings, Market, PaperTrade, Signal, TradeSnapshot, db
 from app.paper_trading import (
     execute_paper_trade,
     get_open_positions,
@@ -28,7 +28,13 @@ from app.paper_trading import (
 )
 from app.resolver import get_resolution_summary, resolve_pending_markets
 from app.scheduler import get_latest_snapshot
-from app.signal_engine import MISPRICING_THRESHOLD, RISK_PROFILES, evaluate_mispricing_signal
+from app.signal_engine import (
+    MISPRICING_THRESHOLD,
+    PROFILE_OVERRIDE_FIELDS,
+    RISK_PROFILES,
+    evaluate_mispricing_signal,
+    get_profile,
+)
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -599,11 +605,9 @@ def export_live_training_data():
 def get_settings():
     settings = {row.key: row.value for row in AppSettings.query.all()}
     profile_key = settings.get("risk_profile", "moderate") or "moderate"
-    profile = RISK_PROFILES.get(profile_key, RISK_PROFILES["moderate"])
+    profile = get_profile(profile_key)
     profile_yes_cutoff = float(profile.get("yes_cutoff", 0.65))
-    threshold_override = str(settings.get("threshold_override", "false")).lower() == "true"
-    manual_yes_cutoff = float(settings.get("yes_cutoff", "0.65") or 0.65)
-    effective_yes_cutoff = manual_yes_cutoff if threshold_override else profile_yes_cutoff
+    effective_yes_cutoff = profile_yes_cutoff
     settings["profile_yes_cutoff"] = f"{profile_yes_cutoff:.4f}"
     settings["effective_yes_cutoff"] = f"{effective_yes_cutoff:.4f}"
     return jsonify(settings)
@@ -634,7 +638,6 @@ def update_settings():
         "min_expected_profit",
         "max_reversal_risk",
         "high_conviction_volatility_override",
-        "threshold_override",
     }
 
     updated = []
@@ -644,7 +647,6 @@ def update_settings():
         "auto_trade_enabled",
         "paper_trading_enabled",
         "dynamic_sizing_enabled",
-        "threshold_override",
     }
     for key, value in payload.items():
         if key not in allowed_keys:
@@ -718,11 +720,84 @@ def risk_profiles():
         "high_conviction": {"recommended": False, "validated": True},
     }
     enriched = {}
-    for name, profile in RISK_PROFILES.items():
-        merged = {**profile}
+    for name, _profile in RISK_PROFILES.items():
+        merged = {**get_profile(name)}
         merged.update(profile_meta.get(name, {"recommended": False, "validated": False}))
+        customized_fields: list[str] = []
+        for field in PROFILE_OVERRIDE_FIELDS:
+            if AppSettings.get(f"profile_override_{name}_{field}") is not None:
+                customized_fields.append(field)
+        merged["customized"] = bool(customized_fields)
+        merged["customized_fields"] = customized_fields
         enriched[name] = merged
     return jsonify({"profiles": enriched, "active": active})
+
+
+@api_bp.route("/risk-profiles/<profile_name>", methods=["POST"])
+def save_risk_profile(profile_name: str):
+    profile_name = (profile_name or "").strip().lower()
+    if profile_name not in RISK_PROFILES:
+        return jsonify({"error": "Unknown profile"}), 404
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Body must be a JSON object"}), 400
+
+    yes_cutoff = float(payload.get("yes_cutoff", 0.65))
+    no_cutoff = float(payload.get("no_cutoff", 0.35))
+    min_seconds = int(payload.get("min_seconds", 60))
+    max_seconds = int(payload.get("max_seconds", 300))
+    early_entry_enabled = bool(payload.get("early_entry_enabled", False))
+    early_min = payload.get("early_entry_min_seconds")
+    early_max = payload.get("early_entry_max_seconds")
+    early_cutoff = payload.get("early_entry_cutoff")
+    description = payload.get("description")
+
+    AppSettings.set(f"profile_override_{profile_name}_yes_cutoff", f"{max(0.50, min(0.90, yes_cutoff)):.4f}")
+    AppSettings.set(f"profile_override_{profile_name}_no_cutoff", f"{max(0.10, min(0.50, no_cutoff)):.4f}")
+    AppSettings.set(f"profile_override_{profile_name}_min_seconds", str(max(0, min(300, min_seconds))))
+    AppSettings.set(f"profile_override_{profile_name}_max_seconds", str(max(60, min(900, max_seconds))))
+    AppSettings.set(f"profile_override_{profile_name}_early_entry_enabled", "true" if early_entry_enabled else "false")
+
+    if early_entry_enabled:
+        AppSettings.set(
+            f"profile_override_{profile_name}_early_entry_min_seconds",
+            str(max(0, min(600, int(early_min if early_min is not None else 0)))),
+        )
+        AppSettings.set(
+            f"profile_override_{profile_name}_early_entry_max_seconds",
+            str(max(0, min(900, int(early_max if early_max is not None else 0)))),
+        )
+        AppSettings.set(
+            f"profile_override_{profile_name}_early_entry_cutoff",
+            f"{max(0.50, min(0.99, float(early_cutoff if early_cutoff is not None else yes_cutoff))):.4f}",
+        )
+    else:
+        for key in (
+            "early_entry_min_seconds",
+            "early_entry_max_seconds",
+            "early_entry_cutoff",
+        ):
+            row = AppSettings.query.filter_by(key=f"profile_override_{profile_name}_{key}").first()
+            if row is not None:
+                db.session.delete(row)
+        db.session.commit()
+
+    if description is not None:
+        AppSettings.set(f"profile_override_{profile_name}_description", str(description))
+    return jsonify({"saved": True, "profile": profile_name})
+
+
+@api_bp.route("/risk-profiles/<profile_name>/reset", methods=["DELETE"])
+def reset_risk_profile(profile_name: str):
+    profile_name = (profile_name or "").strip().lower()
+    if profile_name not in RISK_PROFILES:
+        return jsonify({"error": "Unknown profile"}), 404
+    prefix = f"profile_override_{profile_name}_"
+    rows = AppSettings.query.filter(AppSettings.key.like(f"{prefix}%")).all()
+    for row in rows:
+        db.session.delete(row)
+    db.session.commit()
+    return jsonify({"reset": True})
 
 
 @api_bp.route("/live-snapshot", methods=["GET"])
