@@ -129,7 +129,7 @@ function renderSignalIntelFromLive(snapshot) {
     void snapshot;
 }
 
-function renderSignalRateCard(signals, trades) {
+function renderSignalRateCard(signals, trades, metrics) {
     const labelEl = document.getElementById("intel-confidence-stat-label");
     const statEl = document.getElementById("intel-model-confidence");
     const subEl = document.getElementById("intel-agreement-region");
@@ -146,30 +146,22 @@ function renderSignalRateCard(signals, trades) {
         const ts = new Date(t?.entry_at || "").getTime();
         return Number.isFinite(ts) && ts >= dayStart;
     });
-    const sCount = signalsToday.length;
+    const firedToday = signalsToday.filter((s) => {
+        const sig = String(s?.signal || "");
+        return sig === "PAPER BUY YES" || sig === "PAPER BUY NO";
+    }).length;
     const tCount = tradesToday.length;
-    statEl.textContent = `${sCount} signals today | ${tCount} trades today`;
+    const filteredToday = Number(metrics?.entry_filtered_today || 0);
+    const volatilityBlockedToday = Number(metrics?.volatility_guard_today || 0);
+    const outsideWindowToday = Number(metrics?.outside_time_window_today || 0);
+    statEl.textContent = `${firedToday} trades fired`;
     statEl.classList.remove("text-success", "text-warning", "text-danger", "text-muted");
     statEl.classList.add(tCount > 0 ? "text-success" : "text-muted");
-    if (tCount < 2) {
-        subEl.textContent = "No trades yet today";
+    if (firedToday === 0 && filteredToday === 0 && volatilityBlockedToday === 0 && outsideWindowToday === 0) {
+        subEl.textContent = "No actionable evaluations yet today";
         return;
     }
-    const times = tradesToday
-        .map((t) => new Date(t.entry_at).getTime())
-        .filter((v) => Number.isFinite(v))
-        .sort((a, b) => a - b);
-    if (times.length < 2) {
-        subEl.textContent = "No trades yet today";
-        return;
-    }
-    let diffSumMs = 0;
-    for (let i = 1; i < times.length; i += 1) diffSumMs += (times[i] - times[i - 1]);
-    const avgMs = diffSumMs / (times.length - 1);
-    const totalMin = Math.round(avgMs / 60000);
-    const h = Math.floor(totalMin / 60);
-    const m = totalMin % 60;
-    subEl.textContent = `Avg time between trades: ${h}h ${m}m`;
+    subEl.innerHTML = `${filteredToday} price-filtered<br>${volatilityBlockedToday} volatility-blocked · ${outsideWindowToday} outside-window`;
 }
 
 function renderActiveModeFromSettings(settings) {
@@ -180,7 +172,7 @@ function renderActiveModeFromSettings(settings) {
     const normalizedMode = modeRaw === "ensemble_vote" ? "ensemble" : modeRaw;
     const mode = ["agreement", "mispricing", "ensemble"].includes(normalizedMode) ? normalizedMode : "agreement";
     const mThresh = Number(settings?.mispricing_threshold);
-    const yesCut = Number(settings?.yes_cutoff);
+    const yesCut = Number(settings?.effective_yes_cutoff ?? settings?.yes_cutoff);
     if (dot) {
         dot.classList.remove("mode-mispricing", "mode-agreement");
         dot.classList.add(mode === "mispricing" ? "mode-mispricing" : "mode-agreement");
@@ -283,11 +275,12 @@ async function fetchDashboardRecentTrades() {
 }
 
 async function refreshDashboardIntelBlocks() {
-    const [regionsPayload, settings, historyPayload, signalsPayload] = await Promise.all([
+    const [regionsPayload, settings, historyPayload, signalsPayload, metricsPayload] = await Promise.all([
         apiFetch("/api/analytics/agreement-regions", { headers: { Accept: "application/json" } }),
         apiFetch("/api/settings", { headers: { Accept: "application/json" } }),
         apiFetch("/api/paper/history?limit=100", { headers: { Accept: "application/json" } }),
         apiFetch("/api/signals?limit=1000", { headers: { Accept: "application/json" } }),
+        apiFetch("/api/metrics", { headers: { Accept: "application/json" } }),
     ]);
     if (regionsPayload?.regions) {
         renderBestRegionCell(pickBestAgreementRegion(regionsPayload.regions));
@@ -298,7 +291,7 @@ async function refreshDashboardIntelBlocks() {
     if (historyPayload?.trades) {
         renderTodaysTradesCell(historyPayload.trades);
     }
-    renderSignalRateCard(signalsPayload?.signals || [], historyPayload?.trades || []);
+    renderSignalRateCard(signalsPayload?.signals || [], historyPayload?.trades || [], metricsPayload || {});
 }
 
 function showToast(message, variant = "success", durationMs = 3000) {
@@ -412,7 +405,20 @@ function updateReversalRiskUI() {
     textEl.classList.add(meta.textClass);
     if (blockPill) {
         const blocked = risk > Number(state.maxReversalRisk || 0.65);
+        const region = String(state.latestMarket?.agreement_region || "");
+        const signal = String(state.latestMarket?.signal || "");
+        const mispricingOverrideActive =
+            blocked
+            && signal !== "NO SIGNAL"
+            && (region === "model_bullish" || region === "model_bearish");
         blockPill.classList.toggle("hidden", !blocked);
+        if (blocked && mispricingOverrideActive) {
+            blockPill.textContent = "⚡ MISPRICING OVERRIDE — volatility allowed";
+            blockPill.className = "badge badge-success reversal-risk-guard-pill";
+        } else if (blocked) {
+            blockPill.textContent = "🚫 AUTO-TRADE BLOCKED";
+            blockPill.className = "badge badge-danger reversal-risk-guard-pill";
+        }
     }
     updateVolatilityGuardUI();
 }
@@ -464,6 +470,9 @@ function renderPaperSignalPanel(record) {
         if (agreementRegion === "outside_time_window") {
             subtextEl.classList.add("text-muted");
             subtextEl.textContent = `Outside window — ${Number.isFinite(state.secondsToClose) ? Math.max(0, Math.floor(state.secondsToClose)) : "--"}s to close (window: ${Number(state.minSecondsWindow || 60)}s-${Number(state.maxSecondsWindow || 180)}s)`;
+        } else if (agreementRegion === "volatility_guard") {
+            subtextEl.classList.add("text-warning");
+            subtextEl.textContent = "Agreement trades paused — high volatility (mispricing trades still active)";
         } else if (state.signalMode === "ensemble" && agreementRegion === "entry_filtered" && Number.isFinite(pMarket)) {
             subtextEl.classList.add("text-warning");
             subtextEl.textContent = `▲ Agreement met — entry price ${(pMarket * 100).toFixed(1)}% exceeds max ${(Number(state.maxEntryYes || 0.8) * 100).toFixed(1)}%. Watching for mispricing gap ≥ ${(Number(state.mispricingThreshold || 0.20) * 100).toFixed(0)}%...`;
@@ -810,9 +819,18 @@ function updateVolatilityGuardUI() {
     const risk = Number(state.reversalRisk);
     const maxReversal = Number(state.maxReversalRisk || 0.65);
     const blocked = Number.isFinite(risk) && risk > maxReversal;
+    const region = String(state.latestMarket?.agreement_region || "");
+    const signal = String(state.latestMarket?.signal || "");
+    const mispricingOverrideActive =
+        blocked
+        && signal !== "NO SIGNAL"
+        && (region === "model_bullish" || region === "model_bearish");
     statusEl.classList.remove("text-success", "text-warning");
-    if (blocked) {
-        statusEl.textContent = `Auto-trader paused — high volatility (risk: ${(risk * 100).toFixed(1)}%)`;
+    if (blocked && mispricingOverrideActive) {
+        statusEl.textContent = `Mispricing override active — volatility ${(risk * 100).toFixed(1)}% exceeds agreement limit ${(maxReversal * 100).toFixed(1)}%`;
+        statusEl.classList.add("text-success");
+    } else if (blocked) {
+        statusEl.textContent = `Auto-trader paused — volatility ${(risk * 100).toFixed(1)}% exceeds limit ${(maxReversal * 100).toFixed(1)}% (lower limit in Settings > Risk Guards)`;
         statusEl.classList.add("text-warning");
     } else {
         statusEl.textContent = "Auto-trader active";

@@ -137,25 +137,25 @@ def _infer_mispricing_gap_for_ticker(ticker: str) -> float:
 
 
 def _chart_history_for_ticker(ticker: str) -> list[dict]:
-    """Last 20 signal rows for ticker, oldest first (for chart at entry)."""
+    """Recent signal rows for the same market_id, oldest first (for chart at entry)."""
+    market = Market.query.filter_by(ticker=ticker).first()
+    if market is None:
+        return []
     rows = (
-        Signal.query.join(Market, Signal.market_id == Market.id)
-        .filter(Market.ticker == ticker)
+        Signal.query.filter_by(market_id=market.id)
         .order_by(Signal.logged_at.desc())
-        .limit(20)
+        .limit(25)
         .all()
     )
-    history = []
-    for s in reversed(rows):
-        history.append(
-            {
-                "ts": s.snapshot_ts,
-                "logged_at": _utc_iso_z(s.logged_at),
-                "p_market": s.p_market,
-                "p_raw": s.p_raw,
-            }
-        )
-    return history
+    return [
+        {
+            "ts": s.snapshot_ts,
+            "logged_at": f"{s.logged_at.isoformat()}Z" if s.logged_at else None,
+            "p_market": round(float(s.p_market or 0.0), 4),
+            "p_raw": round(float(s.p_raw or 0.0), 4),
+        }
+        for s in reversed(rows)
+    ]
 
 
 def _persist_trade_snapshot(

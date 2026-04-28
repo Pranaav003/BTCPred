@@ -33,6 +33,10 @@ class ProductionConfig(BaseConfig):
     """Production settings."""
 
     DEBUG = False
+    uri = os.environ.get("DATABASE_URL", "sqlite:///kalshi_signal.db")
+    if uri.startswith("postgres://"):
+        uri = uri.replace("postgres://", "postgresql://", 1)
+    SQLALCHEMY_DATABASE_URI = uri
 
 
 config_by_name = {

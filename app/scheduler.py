@@ -139,15 +139,6 @@ def poll_and_signal() -> None:
                             MIN_SECONDS_FOR_AUTO_TRADE,
                         )
                     else:
-                        reversal_risk = float(snapshot.get("reversal_risk", 0.0) or 0.0)
-                        max_reversal = float(AppSettings.get("max_reversal_risk", "0.65") or 0.65)
-                        if reversal_risk > max_reversal:
-                            logger.info(
-                                "Auto-trade blocked by volatility guard: reversal_risk=%.3f > max=%.3f",
-                                reversal_risk,
-                                max_reversal,
-                            )
-                            return
                         dynamic_sizing = AppSettings.get("dynamic_sizing_enabled", "false") == "true"
                         dollar_amount = float(AppSettings.get("paper_trade_size", "10.0"))
                         mode_str = (AppSettings.get("signal_mode", "agreement") or "agreement").lower()

@@ -154,7 +154,14 @@
                 <span class="text-warning">Moderate (40-65%)</span>
                 <span class="text-danger">Permissive (65-100%)</span>
             </p>
-            <p class="text-muted">Higher = allows more volatile trades. Lower = only trades in calm trending conditions.</p>
+            <p class="text-muted">
+                Controls volatility threshold for AGREEMENT trades only. Mispricing trades (model/market divergence) are always
+                allowed during high volatility — volatility creates mispricing opportunities.
+                <br>
+                Lower threshold = stricter filter for agreement trades. Mispricing signals bypass this guard entirely.
+            </p>
+            <p class="text-muted" id="agreement-volatility-line">Agreement trades: blocked above --</p>
+            <p class="text-success" id="mispricing-volatility-line">Mispricing trades: always active ✓</p>
         </div>
     </article>
 

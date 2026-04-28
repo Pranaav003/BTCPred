@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 def load_model(model_path: str = "raw_feature_model.pkl") -> dict:
     """Load model bundle from disk and validate required keys."""
+    # Future work: support cloud object storage (S3/R2) for model artifacts.
     path = Path(model_path)
     if not path.exists():
         raise RuntimeError(

@@ -598,6 +598,14 @@ def export_live_training_data():
 @api_bp.route("/settings", methods=["GET"])
 def get_settings():
     settings = {row.key: row.value for row in AppSettings.query.all()}
+    profile_key = settings.get("risk_profile", "moderate") or "moderate"
+    profile = RISK_PROFILES.get(profile_key, RISK_PROFILES["moderate"])
+    profile_yes_cutoff = float(profile.get("yes_cutoff", 0.65))
+    threshold_override = str(settings.get("threshold_override", "false")).lower() == "true"
+    manual_yes_cutoff = float(settings.get("yes_cutoff", "0.65") or 0.65)
+    effective_yes_cutoff = manual_yes_cutoff if threshold_override else profile_yes_cutoff
+    settings["profile_yes_cutoff"] = f"{profile_yes_cutoff:.4f}"
+    settings["effective_yes_cutoff"] = f"{effective_yes_cutoff:.4f}"
     return jsonify(settings)
 
 

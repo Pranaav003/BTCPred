@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: kalshi-signal
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn "app:create_app()" -c gunicorn.conf.py
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kalshi-signal-db
+          property: connectionString
+      - key: MODEL_PATH
+        value: raw_feature_model.pkl
+
+databases:
+  - name: kalshi-signal-db
+    databaseName: kalshi_signal
+    plan: free

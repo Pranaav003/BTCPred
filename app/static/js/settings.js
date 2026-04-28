@@ -162,10 +162,14 @@ function updateDynamicSizingPreview() {
 function updateMaxReversalRiskPreview() {
     const slider = document.getElementById("max-reversal-risk-slider");
     const label = document.getElementById("max-reversal-risk-label");
+    const agreementLine = document.getElementById("agreement-volatility-line");
     if (!slider || !label) return;
     const value = Number(slider.value);
     settingsState.maxReversalRisk = Number.isFinite(value) ? value : 0.65;
     label.textContent = `Block auto-trades when reversal risk exceeds ${(settingsState.maxReversalRisk * 100).toFixed(1)}%`;
+    if (agreementLine) {
+        agreementLine.textContent = `Agreement trades: blocked above ${(settingsState.maxReversalRisk * 100).toFixed(1)}%`;
+    }
 }
 
 function scheduleEntryFilterSave() {

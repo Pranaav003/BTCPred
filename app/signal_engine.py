@@ -135,6 +135,7 @@ def evaluate_signal(
     max_entry_price_yes: float = 1.0,
     max_entry_price_no: float = 1.0,
     force_on_high_conviction: bool = False,
+    volatility_guard_active: bool = False,
 ) -> SignalResult:
     """Evaluate raw + market probabilities into a paper-trading signal."""
     confidence = abs(float(p_market) - 0.5) + abs(float(p_raw) - 0.5)
@@ -279,6 +280,22 @@ def evaluate_signal(
                 )
                 entry_filtered = True
                 region = "entry_filtered"
+
+    if volatility_guard_active and signal in {"PAPER BUY YES", "PAPER BUY NO"}:
+        return SignalResult(
+            signal="NO SIGNAL",
+            reason="Volatility guard: reversal risk too high for agreement trade",
+            agreement_region="volatility_guard",
+            p_market=float(p_market),
+            p_raw=float(p_raw),
+            seconds_to_close=int(seconds_to_close),
+            entry_bucket=int(entry_bucket),
+            yes_cutoff=effective_yes_cutoff,
+            no_cutoff=effective_no_cutoff,
+            confidence=float(confidence),
+            p_market_source="unknown",
+            entry_filtered=entry_filtered,
+        )
 
     return SignalResult(
         signal=signal,
@@ -435,6 +452,7 @@ def evaluate_ensemble_signal(
     early_entry_min: int = 300,
     early_entry_max: int = 600,
     early_entry_cutoff: float = 0.80,
+    volatility_guard_active: bool = False,
 ) -> SignalResult:
     """Ensemble vote: agreement or mispricing, with entry-price filters."""
     in_normal = int(min_seconds) <= int(seconds_to_close) <= int(max_seconds)
@@ -460,6 +478,7 @@ def evaluate_ensemble_signal(
     no_entry_ok = (1.0 - float(p_market)) <= float(max_entry_no)
     confidence = abs(float(p_market) - 0.5) + abs(float(p_raw) - 0.5)
 
+    result: SignalResult
     if agreement_yes and yes_entry_ok:
         if mispricing_bullish:
             region = "agree_yes"
@@ -470,7 +489,7 @@ def evaluate_ensemble_signal(
         else:
             region = "agree_yes"
             reason = f"Ensemble: Agreement only ({p_market:.1%} mkt, {p_raw:.1%} model)"
-        return SignalResult(
+        result = SignalResult(
             signal="PAPER BUY YES",
             reason=reason,
             agreement_region=region,
@@ -489,7 +508,7 @@ def evaluate_ensemble_signal(
             f"Ensemble: Mispricing only — "
             f"model ({p_raw:.1%}) exceeds market ({p_market:.1%}) by {gap:.1%}"
         )
-        return SignalResult(
+        result = SignalResult(
             signal="PAPER BUY YES",
             reason=reason,
             agreement_region="model_bullish",
@@ -508,7 +527,7 @@ def evaluate_ensemble_signal(
             f"Ensemble: Bearish gap — "
             f"market ({p_market:.1%}) exceeds model ({p_raw:.1%}) by {(-gap):.1%}"
         )
-        return SignalResult(
+        result = SignalResult(
             signal="PAPER BUY NO",
             reason=reason,
             agreement_region="model_bearish",
@@ -524,7 +543,7 @@ def evaluate_ensemble_signal(
 
     parts: list[str] = []
     if agreement_yes and not yes_entry_ok:
-        return no_signal_result(
+        result = no_signal_result(
             p_market,
             p_raw,
             seconds_to_close,
@@ -538,28 +557,48 @@ def evaluate_ensemble_signal(
                 f"At this price, {(1 - float(p_market)) * 100:.1f}¢ upside per contract."
             ),
         )
-    if not agreement_yes:
-        parts.append(
-            f"Agreement needs {(effective_cutoff - max(float(p_market), float(p_raw))) * 100:.1f}% more"
+    else:
+        if not agreement_yes:
+            parts.append(
+                f"Agreement needs {(effective_cutoff - max(float(p_market), float(p_raw))) * 100:.1f}% more"
+            )
+        if abs(gap) < float(mispricing_threshold):
+            parts.append(f"Gap {abs(gap):.1%} < {float(mispricing_threshold):.1%} threshold")
+        if not yes_entry_ok:
+            parts.append(f"Entry {float(p_market):.1%} > max {float(max_entry_yes):.1%}")
+        if mispricing_bearish and not no_entry_ok:
+            parts.append(
+                f"NO entry {(1.0 - float(p_market)):.1%} > max {float(max_entry_no):.1%}"
+            )
+        result = no_signal_result(
+            p_market,
+            p_raw,
+            seconds_to_close,
+            entry_bucket,
+            effective_cutoff,
+            1.0 - effective_cutoff,
+            "no_agreement",
+            " | ".join(parts) or "No conditions met",
         )
-    if abs(gap) < float(mispricing_threshold):
-        parts.append(f"Gap {abs(gap):.1%} < {float(mispricing_threshold):.1%} threshold")
-    if not yes_entry_ok:
-        parts.append(f"Entry {float(p_market):.1%} > max {float(max_entry_yes):.1%}")
-    if mispricing_bearish and not no_entry_ok:
-        parts.append(
-            f"NO entry {(1.0 - float(p_market)):.1%} > max {float(max_entry_no):.1%}"
-        )
-    return no_signal_result(
-        p_market,
-        p_raw,
-        seconds_to_close,
-        entry_bucket,
-        effective_cutoff,
-        1.0 - effective_cutoff,
-        "no_agreement",
-        " | ".join(parts) or "No conditions met",
-    )
+
+    if volatility_guard_active and result.signal in {"PAPER BUY YES", "PAPER BUY NO"}:
+        if result.agreement_region in {"agree_yes", "agree_no"}:
+            return SignalResult(
+                signal="NO SIGNAL",
+                reason="Volatility guard: reversal risk too high for agreement trade",
+                agreement_region="volatility_guard",
+                p_market=float(p_market),
+                p_raw=float(p_raw),
+                seconds_to_close=int(seconds_to_close),
+                entry_bucket=int(entry_bucket),
+                yes_cutoff=float(effective_cutoff),
+                no_cutoff=float(1.0 - effective_cutoff),
+                confidence=float(confidence),
+                p_market_source="unknown",
+            )
+        if result.agreement_region in {"model_bullish", "model_bearish"}:
+            result.reason += " [volatility override: mispricing allowed despite high reversal risk]"
+    return result
 
 
 def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
@@ -613,35 +652,14 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
     reversal_risk = float(feature_dict.get("reversal_risk", 0.0) or 0.0)
     confidence = abs(p_market - 0.5) + abs(p_raw - 0.5)
     volatility_guard_active = reversal_risk > max_reversal
-    volatility_override = volatility_guard_active and confidence > high_conviction_override
-
-    if volatility_override:
+    if volatility_guard_active:
         logger.info(
-            "High conviction override of volatility guard: reversal_risk=%.3f > %.3f and confidence=%.3f > %.3f",
+            "Volatility guard active: reversal_risk=%.3f > %.3f (mode=%s, confidence=%.3f, hc_override=%.3f)",
             reversal_risk,
             max_reversal,
+            signal_mode,
             confidence,
             high_conviction_override,
-        )
-    elif volatility_guard_active:
-        logger.info(
-            "Volatility guard active: reversal_risk=%.3f > %.3f (confidence=%.3f)",
-            reversal_risk,
-            max_reversal,
-            confidence,
-        )
-        return SignalResult(
-            signal="NO SIGNAL",
-            reason=f"Volatility guard active (risk {reversal_risk:.1%} > max {max_reversal:.1%})",
-            agreement_region="volatility_guard",
-            p_market=float(p_market),
-            p_raw=float(p_raw),
-            seconds_to_close=int(seconds_to_close),
-            entry_bucket=int(entry_bucket),
-            yes_cutoff=float(yes_cutoff),
-            no_cutoff=float(no_cutoff),
-            confidence=float(confidence),
-            p_market_source=p_market_source,
         )
     if signal_mode == "mispricing":
         logger.info(
@@ -687,6 +705,7 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
             early_entry_min=int(profile.get("early_entry_min_seconds") or 300),
             early_entry_max=int(profile.get("early_entry_max_seconds") or 600),
             early_entry_cutoff=float(profile.get("early_entry_cutoff") or 0.80),
+            volatility_guard_active=volatility_guard_active,
         )
     else:
         region = determine_agreement_region(p_market, p_raw, yes_cutoff, no_cutoff)
@@ -713,13 +732,9 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
             early_entry_cutoff=early_entry_cutoff,
             max_entry_price_yes=max_entry_yes,
             max_entry_price_no=max_entry_no,
-            force_on_high_conviction=volatility_override,
+            force_on_high_conviction=False,
+            volatility_guard_active=volatility_guard_active,
         )
-        if volatility_override and result.signal in {"PAPER BUY YES", "PAPER BUY NO"}:
-            result.reason = (
-                f"\u26a1 HIGH CONVICTION despite volatility (risk {reversal_risk:.1%} > max {max_reversal:.1%}) | "
-                f"{result.reason}"
-            )
     result.p_market_source = p_market_source
     return result
 

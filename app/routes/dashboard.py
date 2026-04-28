@@ -1,6 +1,6 @@
 """Dashboard page routes."""
 
-from flask import Blueprint, render_template
+from flask import Blueprint, redirect, render_template, url_for
 
 from app.model_loader import get_model
 from app.models import AppSettings
@@ -34,8 +34,9 @@ def _typed_settings() -> dict:
 
 
 @dashboard_bp.route("/")
-def home() -> str:
-    return "Dashboard placeholder"
+def home():
+    """Root URL: send users to the main dashboard (avoids stale 'placeholder' confusion)."""
+    return redirect(url_for("dashboard.dashboard"))
 
 
 @dashboard_bp.route("/dashboard")

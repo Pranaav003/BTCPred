@@ -145,6 +145,14 @@ def get_signal_metrics() -> dict:
         Signal.agreement_region == "entry_filtered",
         func.date(Signal.logged_at) == today_date.isoformat(),
     ).count()
+    volatility_guard_today = Signal.query.filter(
+        Signal.agreement_region == "volatility_guard",
+        func.date(Signal.logged_at) == today_date.isoformat(),
+    ).count()
+    outside_time_window_today = Signal.query.filter(
+        Signal.agreement_region == "outside_time_window",
+        func.date(Signal.logged_at) == today_date.isoformat(),
+    ).count()
 
     return {
         "total_signals": total_signals,
@@ -158,6 +166,8 @@ def get_signal_metrics() -> dict:
         "worst_pnl": float(worst_pnl) if worst_pnl is not None else None,
         "entry_filtered_today": int(entry_filtered_today),
         "entry_filtered_total": int(entry_filtered_total),
+        "volatility_guard_today": int(volatility_guard_today),
+        "outside_time_window_today": int(outside_time_window_today),
     }
 
 

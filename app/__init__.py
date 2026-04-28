@@ -1,6 +1,7 @@
 """Application factory for the Kalshi Signal Flask app."""
 
 import json
+import os
 
 import click
 from flask import Flask
@@ -51,14 +52,18 @@ def create_app(config_name: str | None = None) -> Flask:
         AppSettings.set("scheduler_running", "true")
 
     app.scheduler_instance = None
-    should_start_scheduler = not app.testing and selected_config != "testing"
+    should_start_scheduler = (
+        not app.testing
+        and selected_config != "testing"
+        and os.environ.get("WERKZEUG_RUN_MAIN") != "false"
+    )
     if should_start_scheduler:
         try:
             from app.scheduler import init_scheduler
 
             app.scheduler_instance = init_scheduler(app)
-        except Exception:
-            app.logger.exception("Scheduler failed to initialize; continuing without it.")
+        except Exception as exc:
+            app.logger.error("Scheduler failed to start: %s", exc)
 
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(api_bp)

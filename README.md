@@ -32,14 +32,34 @@ Always train and serve with the same Python environment.
 
 The sklearn version must match in both environments. If it differs, retrain the model using the Flask runtime environment.
 
-## Deploy to Render
+## Deploy to Render (recommended)
 
-1. Create new Web Service
-2. Connect your repo
-3. Build command: `pip install -r requirements.txt`
-4. Start command: `gunicorn "app:create_app()" -c gunicorn.conf.py`
-5. Add environment variables from `.env.example`
-6. Note: `.pkl` model file must be committed or built at deploy time
+1. Push code to GitHub (include `raw_feature_model.pkl`).
+2. Go to [render.com](https://render.com), create account, connect GitHub repo.
+3. Click **New +** -> **Web Service** -> select your repo.
+4. Render auto-detects `render.yaml` and creates:
+   - Web service (Flask app)
+   - PostgreSQL database (free tier)
+5. Add environment variables in Render dashboard:
+   - `FLASK_ENV=production`
+   - `SECRET_KEY=[random string]`
+   - (`DATABASE_URL` is set automatically from the database)
+6. Deploy. App runs at your Render URL.
+7. To retrain model:
+   - Run `python train_raw_model.py` locally
+   - `git add raw_feature_model.pkl`
+   - `git commit -m "retrain model"`
+   - `git push`
+   - Render auto-redeploys
+
+## Important notes for cloud deployment
+
+- Commit updated `raw_feature_model.pkl` after retraining so Render deploys the latest model.
+- The free PostgreSQL on Render expires after 90 days.
+- Upgrade to paid for long-term persistent database usage.
+- The scheduler runs continuously on the cloud server.
+- Dashboard is accessible from any browser via the Render URL.
+- Paper trades and signals persist across restarts with PostgreSQL.
 
 ## Project Structure
 
