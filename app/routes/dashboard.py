@@ -46,12 +46,15 @@ def dashboard():
     try:
         get_model()
         model_loaded = True
-    except RuntimeError:
+    except Exception:
         model_loaded = False
 
     auto_trade_enabled = AppSettings.get("auto_trade_enabled", "false") == "true"
     enable_no_signals = AppSettings.get("enable_no_signals", "false") == "true"
-    resolution_summary = get_resolution_summary()
+    try:
+        resolution_summary = get_resolution_summary()
+    except Exception:
+        resolution_summary = {"pending_resolution": 0}
     pending_resolution = int(resolution_summary.get("pending_resolution", 0) or 0)
     paper_trading_enabled = AppSettings.get("paper_trading_enabled", "false") == "true"
     paper_trade_size = float(AppSettings.get("paper_trade_size", "10.0"))
@@ -75,11 +78,14 @@ def monitor():
     try:
         get_model()
         model_loaded = True
-    except RuntimeError:
+    except Exception:
         model_loaded = False
     auto_trade_enabled = AppSettings.get("auto_trade_enabled", "false") == "true"
     enable_no_signals = AppSettings.get("enable_no_signals", "false") == "true"
-    resolution_summary = get_resolution_summary()
+    try:
+        resolution_summary = get_resolution_summary()
+    except Exception:
+        resolution_summary = {"pending_resolution": 0}
     pending_resolution = int(resolution_summary.get("pending_resolution", 0) or 0)
     return render_template(
         "monitor.html",
