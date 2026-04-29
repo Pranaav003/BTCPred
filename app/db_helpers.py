@@ -202,7 +202,7 @@ def seed_default_settings() -> None:
         "no_cutoff": "0.35",
         "min_seconds_to_close": "30",
         "max_seconds_to_close": "300",
-        "poll_interval_seconds": "15",
+        "poll_interval_seconds": "8",
         "enable_no_signals": "false",
         "auto_trade_enabled": "false",
         "paper_trading_enabled": "false",

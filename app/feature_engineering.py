@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import time
 from typing import Any
 
@@ -105,11 +106,15 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
     if seconds_to_close <= 0:
         return None
 
-    candles = get_candles(str(ticker), int(close_ts))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        candle_future = ex.submit(get_candles, str(ticker), int(close_ts))
+        trade_future = ex.submit(get_trades, str(ticker), snapshot_ts - 600, snapshot_ts)
+        candles = candle_future.result(timeout=15)
+        trades = trade_future.result(timeout=15)
+
     if candles is None or candles.empty:
         return None
 
-    trades = get_trades(str(ticker), snapshot_ts - 600, snapshot_ts)
     if trades is None:
         trades = pd.DataFrame(columns=["ts", "price", "qty"])
 

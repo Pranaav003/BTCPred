@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -94,6 +96,7 @@ def _price_context_for_snapshot() -> dict:
 
 def poll_and_signal() -> None:
     """Scheduled polling job that computes and stores the latest signal."""
+    start = time.time()
     try:
         if _app is None:
             logger.error("poll_and_signal called before scheduler app initialization.")
@@ -244,6 +247,11 @@ def poll_and_signal() -> None:
             )
     except Exception:
         logger.exception("poll_and_signal failed")
+    finally:
+        elapsed = time.time() - start
+        logger.info("poll_and_signal completed in %.2fs", elapsed)
+        if elapsed > 5.0:
+            logger.warning("Slow poll: %.2fs — API may be slow", elapsed)
 
 
 def resolve_job() -> None:
@@ -296,7 +304,7 @@ def init_scheduler(app):
         return _SCHEDULER_INSTANCE
 
     with app.app_context():
-        interval = int(AppSettings.get("poll_interval_seconds", "15"))
+        interval = int(AppSettings.get("poll_interval_seconds", "8"))
 
     scheduler_instance = BackgroundScheduler(timezone="UTC")
     scheduler_instance.add_job(
@@ -325,6 +333,20 @@ def init_scheduler(app):
     )
     scheduler_instance.start()
     logger.info("Scheduler started, polling every %ss", interval)
+
+    def _warmup_cache() -> None:
+        time.sleep(2)
+        logger.info("Warming up Kalshi API cache...")
+        try:
+            if _app is None:
+                return
+            with _app.app_context():
+                poll_and_signal()
+            logger.info("Cache warmed")
+        except Exception:
+            logger.exception("Cache warmup failed")
+
+    threading.Thread(target=_warmup_cache, daemon=True, name="kalshi-cache-warmup").start()
 
     _SCHEDULER_INSTANCE = scheduler_instance
     return scheduler_instance

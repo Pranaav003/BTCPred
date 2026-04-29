@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime, timezone
+from threading import Lock
 from typing import Any
 
 import pandas as pd
@@ -17,6 +18,17 @@ PREFERRED_STRIKE = "-30"
 
 logger = logging.getLogger(__name__)
 _btc_price_cache: dict[str, float | None] = {"price": None, "ts": 0}
+
+_cache_lock = Lock()
+_market_cache: dict[str, dict[str, Any]] = {}
+_candle_cache: dict[str, dict[str, Any]] = {}
+_trade_cache: dict[str, dict[str, Any]] = {}
+
+MARKET_CACHE_TTL = 30.0
+CANDLE_CACHE_TTL = 12.0
+TRADE_CACHE_TTL = 10.0
+_MAX_CANDLE_CACHE_ENTRIES = 10
+_MAX_TRADE_CACHE_ENTRIES = 20
 # NOTE: The following endpoints require authentication (API key):
 # - GET /markets/{ticker}/orderbook
 # - POST /portfolio/orders (order placement)
@@ -105,7 +117,7 @@ def _normalize_price(value: Any) -> float | None:
         return None
 
 
-def get_active_market(preferred_suffix: str = PREFERRED_STRIKE) -> dict | None:
+def _fetch_active_market(preferred_suffix: str = PREFERRED_STRIKE) -> dict | None:
     """Return nearest KXBTC15M market closing within the next 900 seconds."""
     url = f"{BASE_URL}/markets"
     payload = _get(url, {"series_ticker": SERIES, "limit": 200})
@@ -151,7 +163,26 @@ def get_active_market(preferred_suffix: str = PREFERRED_STRIKE) -> dict | None:
     return selected[0]
 
 
-def get_candles(ticker: str, close_ts: int) -> pd.DataFrame:
+def get_active_market(preferred_suffix: str = PREFERRED_STRIKE) -> dict | None:
+    """Return nearest KXBTC15M market; responses cached briefly to reduce API latency."""
+    suffix_key = str(preferred_suffix)
+    with _cache_lock:
+        now = time.time()
+        cached = _market_cache.get(suffix_key)
+        if cached and cached.get("data") is not None and now - float(cached.get("ts") or 0) < MARKET_CACHE_TTL:
+            return cached["data"]
+
+    result = _fetch_active_market(preferred_suffix)
+
+    with _cache_lock:
+        _market_cache[suffix_key] = {"data": result, "ts": time.time()}
+        if len(_market_cache) > 8:
+            oldest = min(_market_cache, key=lambda k: float(_market_cache[k].get("ts") or 0))
+            del _market_cache[oldest]
+    return result
+
+
+def _fetch_candles(ticker: str, close_ts: int) -> pd.DataFrame:
     """Fetch minute candles for last 900 seconds before close."""
     columns = ["ts", "close", "high", "low"]
     empty = pd.DataFrame(columns=columns)
@@ -212,7 +243,28 @@ def get_candles(ticker: str, close_ts: int) -> pd.DataFrame:
     return df if not df.empty else empty
 
 
-def get_trades(ticker: str, start_ts: int, end_ts: int) -> pd.DataFrame:
+def get_candles(ticker: str, close_ts: int) -> pd.DataFrame:
+    """Fetch minute candles; results cached briefly (same inputs → same snapshot logic)."""
+    cache_key = f"{ticker}_{int(close_ts)}"
+    with _cache_lock:
+        now = time.time()
+        cached = _candle_cache.get(cache_key)
+        if cached and now - float(cached.get("ts") or 0) < CANDLE_CACHE_TTL:
+            df = cached.get("data")
+            if isinstance(df, pd.DataFrame):
+                return df.copy()
+
+    result = _fetch_candles(ticker, close_ts)
+
+    with _cache_lock:
+        _candle_cache[cache_key] = {"data": result, "ts": time.time()}
+        if len(_candle_cache) > _MAX_CANDLE_CACHE_ENTRIES:
+            oldest = min(_candle_cache, key=lambda k: float(_candle_cache[k].get("ts") or 0))
+            del _candle_cache[oldest]
+    return result.copy() if isinstance(result, pd.DataFrame) else result
+
+
+def _fetch_trades(ticker: str, start_ts: int, end_ts: int) -> pd.DataFrame:
     """Fetch and paginate trades between timestamps."""
     columns = ["ts", "price", "qty"]
     empty = pd.DataFrame(columns=columns)
@@ -282,6 +334,27 @@ def get_trades(ticker: str, start_ts: int, end_ts: int) -> pd.DataFrame:
     df = pd.DataFrame(all_rows, columns=columns)
     df = df.dropna(subset=["ts", "price"]).drop_duplicates().sort_values("ts").reset_index(drop=True)
     return df if not df.empty else empty
+
+
+def get_trades(ticker: str, start_ts: int, end_ts: int) -> pd.DataFrame:
+    """Fetch trades; responses cached briefly per ticker + 30s-bucketed window."""
+    cache_key = f"{ticker}_{int(start_ts) // 30}_{int(end_ts) // 30}"
+    with _cache_lock:
+        now = time.time()
+        cached = _trade_cache.get(cache_key)
+        if cached and now - float(cached.get("ts") or 0) < TRADE_CACHE_TTL:
+            df = cached.get("data")
+            if isinstance(df, pd.DataFrame):
+                return df.copy()
+
+    result = _fetch_trades(ticker, start_ts, end_ts)
+
+    with _cache_lock:
+        _trade_cache[cache_key] = {"data": result, "ts": time.time()}
+        if len(_trade_cache) > _MAX_TRADE_CACHE_ENTRIES:
+            oldest = min(_trade_cache, key=lambda k: float(_trade_cache[k].get("ts") or 0))
+            del _trade_cache[oldest]
+    return result.copy() if isinstance(result, pd.DataFrame) else result
 
 
 def get_market_resolution(ticker: str) -> dict | None:
