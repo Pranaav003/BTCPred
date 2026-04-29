@@ -27,6 +27,7 @@ def _typed_settings() -> dict:
         "max_entry_price_no": float(AppSettings.get("max_entry_price_no", "0.85")),
         "min_expected_profit": float(AppSettings.get("min_expected_profit", "0.10")),
         "max_reversal_risk": float(AppSettings.get("max_reversal_risk", "0.65")),
+        "max_daily_loss": float(AppSettings.get("max_daily_loss", "200.0") or 200.0),
         "high_conviction_volatility_override": float(AppSettings.get("high_conviction_volatility_override", "0.80")),
         "scheduler_running": AppSettings.get("scheduler_running", "false") == "true",
     }

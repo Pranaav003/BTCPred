@@ -10,9 +10,11 @@ const settingsState = {
     maxEntryPriceYes: 0.85,
     maxEntryPriceNo: 0.85,
     maxReversalRisk: 0.65,
+    maxDailyLoss: 200,
     dynamicSizingEnabled: false,
     entryFilterSaveTimerId: null,
     reversalRiskSaveTimerId: null,
+    maxDailyLossSaveTimerId: null,
     editingProfile: null,
     draftProfile: null,
 };
@@ -185,6 +187,27 @@ function scheduleReversalRiskSave() {
             showSettingsToast("Volatility guard updated", "success");
         } catch (error) {
             showSettingsToast(`Failed to update volatility guard: ${error.message}`, "error");
+        }
+    }, 500);
+}
+
+function updateMaxDailyLossPreview() {
+    const input = document.getElementById("max-daily-loss-input");
+    const label = document.getElementById("max-daily-loss-label");
+    if (!input) return;
+    const value = Number(input.value);
+    settingsState.maxDailyLoss = Number.isFinite(value) && value > 0 ? value : 200;
+    if (label) label.textContent = String(Math.round(settingsState.maxDailyLoss));
+}
+
+function scheduleMaxDailyLossSave() {
+    if (settingsState.maxDailyLossSaveTimerId) window.clearTimeout(settingsState.maxDailyLossSaveTimerId);
+    settingsState.maxDailyLossSaveTimerId = window.setTimeout(async () => {
+        try {
+            await savePartialSettings({ max_daily_loss: settingsState.maxDailyLoss });
+            showSettingsToast("Max daily loss updated", "success");
+        } catch (error) {
+            showSettingsToast(`Failed to update max daily loss: ${error.message}`, "error");
         }
     }, 500);
 }
@@ -454,6 +477,7 @@ async function saveSettings() {
         max_entry_price_no: Number(settingsState.maxEntryPriceNo || 0.85),
         min_expected_profit: Number(settingsState.settings.min_expected_profit || 0.10),
         max_reversal_risk: Number(settingsState.maxReversalRisk || 0.65),
+        max_daily_loss: Number(settingsState.maxDailyLoss || 200),
         dynamic_sizing_enabled: settingsState.dynamicSizingEnabled,
     };
     try {
@@ -547,6 +571,7 @@ async function initRiskProfileSettings() {
         settingsState.maxEntryPriceYes = Number(settingsData?.max_entry_price_yes || 0.85);
         settingsState.maxEntryPriceNo = Number(settingsData?.max_entry_price_no || 0.85);
         settingsState.maxReversalRisk = Number(settingsData?.max_reversal_risk || 0.65);
+        settingsState.maxDailyLoss = Number(settingsData?.max_daily_loss || 200);
         settingsState.dynamicSizingEnabled = (settingsData?.dynamic_sizing_enabled || "false") === "true";
 
         renderRiskProfiles();
@@ -561,10 +586,15 @@ async function initRiskProfileSettings() {
         if (maxYesSlider && Number.isFinite(settingsState.maxEntryPriceYes)) maxYesSlider.value = String(settingsState.maxEntryPriceYes);
         if (maxNoSlider && Number.isFinite(settingsState.maxEntryPriceNo)) maxNoSlider.value = String(settingsState.maxEntryPriceNo);
         if (maxReversalSlider && Number.isFinite(settingsState.maxReversalRisk)) maxReversalSlider.value = String(settingsState.maxReversalRisk);
+        const maxDailyLossInput = document.getElementById("max-daily-loss-input");
+        if (maxDailyLossInput && Number.isFinite(settingsState.maxDailyLoss)) {
+            maxDailyLossInput.value = String(Math.round(settingsState.maxDailyLoss));
+        }
         updateMispricingThresholdLabel();
         updateEntryFilterPreview();
         updateDynamicSizingPreview();
         updateMaxReversalRiskPreview();
+        updateMaxDailyLossPreview();
         renderSignalMode();
     } catch (error) {
         showSettingsToast(`Failed to load risk profiles: ${error.message}`, "error");
@@ -643,6 +673,13 @@ function wireInputs() {
         maxReversalSlider.addEventListener("input", () => {
             updateMaxReversalRiskPreview();
             scheduleReversalRiskSave();
+        });
+    }
+    const maxDailyLossInput = document.getElementById("max-daily-loss-input");
+    if (maxDailyLossInput) {
+        maxDailyLossInput.addEventListener("input", () => {
+            updateMaxDailyLossPreview();
+            scheduleMaxDailyLossSave();
         });
     }
     if (dynamicSizingToggle) {

@@ -215,6 +215,7 @@ def seed_default_settings() -> None:
         "max_entry_price_no": "0.80",
         "min_expected_profit": "0.10",
         "max_reversal_risk": "0.65",
+        "max_daily_loss": "200.0",
         "high_conviction_volatility_override": "0.80",
         "scheduler_running": "false",
     }

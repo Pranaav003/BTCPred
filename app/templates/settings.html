@@ -162,6 +162,11 @@
             <p class="text-muted" id="agreement-volatility-line">Agreement trades: blocked above --</p>
             <p class="text-warning" id="mispricing-volatility-line">Mispricing trades: allowed above agreement limit up to 65.0%</p>
             <p class="text-danger">Max Reversal Risk (Mispricing cap): <span class="mono">65%</span> — hard safety limit for all trades.</p>
+            <div class="settings-field">
+                <label for="max-daily-loss-input">Max Daily Loss: $<span class="mono" id="max-daily-loss-label">{{ settings.max_daily_loss | int }}</span></label>
+                <input id="max-daily-loss-input" type="number" min="1" step="1" value="{{ settings.max_daily_loss | int }}">
+                <p class="text-muted">Auto-trader stops for the day if today’s realized P&amp;L falls below −this amount (scheduler paused; restart from Settings).</p>
+            </div>
         </div>
     </article>
 

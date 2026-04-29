@@ -23,6 +23,35 @@ _latest_snapshot = None
 _latest_signal = None
 MIN_SECONDS_FOR_AUTO_TRADE = 90
 
+
+def _utc_start_of_today() -> datetime:
+    now = datetime.now(timezone.utc)
+    return datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+
+
+def _today_realized_pnl_net() -> float:
+    """Sum realized_pnl for trades resolved today (UTC calendar day)."""
+    start = _utc_start_of_today()
+    rows = PaperTrade.query.filter(PaperTrade.resolved.is_(True), PaperTrade.entry_at >= start).all()
+    return sum(float(t.realized_pnl or 0.0) for t in rows if t.realized_pnl is not None)
+
+
+def _enforce_daily_loss_limit_before_auto_trade() -> bool:
+    """Return True if auto-trading must stop (scheduler paused)."""
+    max_daily_loss = float(AppSettings.get("max_daily_loss", "200.0") or 200.0)
+    if max_daily_loss <= 0:
+        return False
+    today_pnl = _today_realized_pnl_net()
+    if today_pnl < -max_daily_loss:
+        logger.warning(
+            "Daily loss limit reached: %.2f < -%.2f. Auto-trader paused (scheduler_running=false).",
+            today_pnl,
+            max_daily_loss,
+        )
+        AppSettings.set("scheduler_running", "false")
+        return True
+    return False
+
 _SNAPSHOT_FEATURE_KEYS = [
     "return_1m",
     "return_3m",
@@ -120,8 +149,7 @@ def poll_and_signal() -> None:
             auto_trade_enabled = AppSettings.get("auto_trade_enabled", "false") == "true"
             paper_trading_enabled = AppSettings.get("paper_trading_enabled", "false") == "true"
             if auto_trade_enabled and paper_trading_enabled and result.signal in ("PAPER BUY YES", "PAPER BUY NO"):
-                if result is None:
-                    logger.error("Signal result is None, skipping auto-trade")
+                if _enforce_daily_loss_limit_before_auto_trade():
                     return
                 if result.p_market <= 0 or result.p_market >= 1:
                     logger.error("Invalid p_market=%s, skipping", result.p_market)

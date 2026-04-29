@@ -640,6 +640,7 @@ def update_settings():
         "max_entry_price_no",
         "min_expected_profit",
         "max_reversal_risk",
+        "max_daily_loss",
         "high_conviction_volatility_override",
     }
 
@@ -696,6 +697,14 @@ def update_settings():
                 continue
             max_reversal = max(0.20, min(1.0, max_reversal))
             AppSettings.set(key, f"{max_reversal:.4f}")
+        elif key == "max_daily_loss":
+            try:
+                max_loss = float(value)
+            except (TypeError, ValueError):
+                errors.append("max_daily_loss must be numeric")
+                continue
+            max_loss = max(1.0, min(1_000_000.0, max_loss))
+            AppSettings.set(key, f"{max_loss:.2f}")
         elif key == "high_conviction_volatility_override":
             try:
                 override_cutoff = float(value)
