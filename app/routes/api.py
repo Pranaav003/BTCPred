@@ -822,9 +822,20 @@ def live_snapshot():
     if snapshot is None:
         return jsonify({"error": "No active market"}), 404
     from app.signal_engine import evaluate_live_signal, signal_to_dict
+
     result = evaluate_live_signal(snapshot)
     signal = signal_to_dict(result) if result else {}
-    return jsonify({**snapshot, **(signal or {})})
+    # Dashboard time-window UI must match the same profile merge as evaluate_live_signal —
+    # do not rely on a separate GET /api/settings timing (two tabs / envs diverged badly).
+    risk_key = (AppSettings.get("risk_profile", "moderate") or "moderate").strip().lower()
+    profile = get_profile(risk_key)
+    merged = {
+        **snapshot,
+        **(signal or {}),
+        "signal_window_min_seconds": int(profile.get("min_seconds", 60)),
+        "signal_window_max_seconds": int(profile.get("max_seconds", 180)),
+    }
+    return jsonify(merged)
 
 
 @api_bp.route("/paper/portfolio", methods=["GET"])

@@ -1092,6 +1092,10 @@ async function fetchLiveSnapshot() {
     const snapshot = await apiFetch("/api/live-snapshot", { headers: { Accept: "application/json" } });
     if (!snapshot) return;
     state.yesCutoff = Number.isFinite(Number(snapshot?.yes_cutoff)) ? Number(snapshot.yes_cutoff) : state.yesCutoff;
+    const wMin = Number(snapshot.signal_window_min_seconds);
+    const wMax = Number(snapshot.signal_window_max_seconds);
+    if (Number.isFinite(wMin)) state.minSecondsWindow = wMin;
+    if (Number.isFinite(wMax)) state.maxSecondsWindow = wMax;
     const seconds = Number(snapshot?.seconds_to_close);
     if (Number.isFinite(seconds)) state.secondsToClose = seconds;
     state.reversalRisk = Number.isFinite(Number(snapshot?.reversal_risk)) ? Number(snapshot.reversal_risk) : null;
