@@ -1124,8 +1124,13 @@ async function fetchLiveSnapshot() {
 async function fetchWindowSettings() {
     const settings = await apiFetch("/api/settings", { headers: { Accept: "application/json" } });
     if (!settings) return;
-    const minVal = Number(settings.min_seconds_to_close);
-    const maxVal = Number(settings.max_seconds_to_close);
+    // Prefer profile-based window (matches backend + Settings risk cards); fall back to legacy keys.
+    const minVal = Number(
+        settings.effective_min_seconds_to_close != null ? settings.effective_min_seconds_to_close : settings.min_seconds_to_close
+    );
+    const maxVal = Number(
+        settings.effective_max_seconds_to_close != null ? settings.effective_max_seconds_to_close : settings.max_seconds_to_close
+    );
     if (Number.isFinite(minVal)) state.minSecondsWindow = minVal;
     if (Number.isFinite(maxVal)) state.maxSecondsWindow = maxVal;
 }

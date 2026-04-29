@@ -609,6 +609,10 @@ def get_settings():
     effective_yes_cutoff = profile_yes_cutoff
     settings["profile_yes_cutoff"] = f"{profile_yes_cutoff:.4f}"
     settings["effective_yes_cutoff"] = f"{effective_yes_cutoff:.4f}"
+    # Dashboard must use the same min/max seconds as evaluate_live_signal (risk profile merge),
+    # not stale AppSettings.min_seconds_to_close / max_seconds_to_close from older seeds.
+    settings["effective_min_seconds_to_close"] = str(int(profile.get("min_seconds", 60)))
+    settings["effective_max_seconds_to_close"] = str(int(profile.get("max_seconds", 180)))
     return jsonify(settings)
 
 
