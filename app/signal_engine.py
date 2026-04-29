@@ -11,6 +11,7 @@ from app.model_loader import predict_proba_raw
 
 logger = logging.getLogger(__name__)
 MISPRICING_THRESHOLD = 0.10
+MAX_MISPRICING_OVERRIDE_RISK = 0.65
 
 RISK_PROFILES = {
     "conservative": {
@@ -720,6 +721,21 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
     entry_bucket = int(feature_dict.get("entry_bucket", 60) or 60)
     reversal_risk = float(feature_dict.get("reversal_risk", 0.0) or 0.0)
     confidence = abs(p_market - 0.5) + abs(p_raw - 0.5)
+    if reversal_risk > MAX_MISPRICING_OVERRIDE_RISK:
+        return no_signal_result(
+            p_market=p_market,
+            p_raw=p_raw,
+            seconds_to_close=seconds_to_close,
+            entry_bucket=entry_bucket,
+            yes_cutoff=yes_cutoff,
+            no_cutoff=no_cutoff,
+            agreement_region="volatility_guard",
+            reason=(
+                "Volatility too extreme for mispricing override "
+                f"({reversal_risk:.1%} > {MAX_MISPRICING_OVERRIDE_RISK:.1%} cap)"
+            ),
+        )
+
     volatility_guard_active = reversal_risk > max_reversal
     if volatility_guard_active:
         logger.info(

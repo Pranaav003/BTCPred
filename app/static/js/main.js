@@ -32,6 +32,8 @@ const state = {
     dynamicSizingEnabled: false,
     signalMode: "agreement",
     mispricingThreshold: 0.10,
+    openPositionTicker: null,
+    openPositionSide: null,
 };
 
 const toText = (value) => (value === null || value === undefined || value === "" ? "--" : String(value));
@@ -1053,6 +1055,11 @@ async function fetchPositionsForToasts() {
     const data = await apiFetch("/api/paper/positions", { headers: { Accept: "application/json" } });
     if (!data) return;
     const positions = Array.isArray(data.positions) ? data.positions : [];
+    const currentTicker = String(state.latestMarket?.ticker || "");
+    const openOnCurrent = positions.find((p) => String(p?.ticker || "") === currentTicker);
+    state.openPositionTicker = openOnCurrent ? String(openOnCurrent.ticker || "") : null;
+    state.openPositionSide = openOnCurrent ? String(openOnCurrent.side || "").toUpperCase() : null;
+    updateTradeCalculator();
     if (!state.seededPositionIds) {
         state.knownPositionIds = new Set(positions.map((p) => p.id));
         state.seededPositionIds = true;
@@ -1258,6 +1265,7 @@ function updateTradeCalculator() {
     const netProfitEl = document.getElementById("payout-net-profit");
     const leverageWarningEl = document.getElementById("no-leverage-warning");
     const entryFilterWarningEl = document.getElementById("entry-filter-warning");
+    const openPositionWarningEl = document.getElementById("open-position-warning");
     if (!input || !contractsEl || !yesBtn || !noBtn) return;
 
     const amount = Number(input.value);
@@ -1362,11 +1370,26 @@ function updateTradeCalculator() {
 
     const baseDisabled = !hasAmount || !hasMarket || !state.paperEnabled;
     const tooCloseToExpiry = Number.isFinite(state.secondsToClose) && state.secondsToClose < 60;
-    yesBtn.disabled = baseDisabled || tooCloseToExpiry || (Number.isFinite(cash) && cash < amount);
-    noBtn.disabled = baseDisabled || tooCloseToExpiry || (Number.isFinite(cash) && cash < amount);
+    const currentTicker = String(state.latestMarket?.ticker || "");
+    const openSameMarket = Boolean(state.openPositionTicker && currentTicker && state.openPositionTicker === currentTicker);
+    const openSide = String(state.openPositionSide || "").toUpperCase();
+    const disableYesForOpenOpposite = openSameMarket && openSide === "NO";
+    const disableNoForOpenOpposite = openSameMarket && openSide === "YES";
+    yesBtn.disabled = baseDisabled || tooCloseToExpiry || (Number.isFinite(cash) && cash < amount) || disableYesForOpenOpposite;
+    noBtn.disabled = baseDisabled || tooCloseToExpiry || (Number.isFinite(cash) && cash < amount) || disableNoForOpenOpposite;
     yesBtn.textContent = tooCloseToExpiry ? "🔒 BUY YES" : "BUY YES";
     noBtn.textContent = tooCloseToExpiry ? "🔒 BUY NO" : "BUY NO";
+    yesBtn.title = disableYesForOpenOpposite ? "Cannot trade both sides of the same market" : "";
+    noBtn.title = disableNoForOpenOpposite ? "Cannot trade both sides of the same market" : "";
     if (lockMsg) lockMsg.classList.toggle("hidden", !tooCloseToExpiry);
+    if (openPositionWarningEl) {
+        if (openSameMarket && (openSide === "YES" || openSide === "NO")) {
+            openPositionWarningEl.textContent = `⚠ You have an open ${openSide} position on this market. Trading the other side would hedge your position.`;
+            openPositionWarningEl.classList.remove("hidden");
+        } else {
+            openPositionWarningEl.classList.add("hidden");
+        }
+    }
 }
 
 async function placeTrade(side, options = {}) {
@@ -1376,6 +1399,14 @@ async function placeTrade(side, options = {}) {
     const ticker = state.latestMarket?.ticker;
     if (!ticker) return showToast("No active market found", "error");
     if (!Number.isFinite(amount) || amount <= 0) return showToast("Enter a valid trade size", "error");
+    if (
+        state.openPositionTicker
+        && state.openPositionTicker === ticker
+        && state.openPositionSide
+        && state.openPositionSide !== side
+    ) {
+        return showToast("Cannot trade both sides of the same market", "error");
+    }
     const price = currentEntryPriceForSide(side);
     if (!Number.isFinite(price) || price <= 0) return showToast("No valid market price available", "error");
     if (Number.isFinite(state.secondsToClose) && state.secondsToClose < 60) return showToast("Trading locked — less than 60s to close", "error");

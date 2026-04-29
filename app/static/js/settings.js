@@ -154,7 +154,7 @@ function updateMaxReversalRiskPreview() {
     if (!slider || !label) return;
     const value = Number(slider.value);
     settingsState.maxReversalRisk = Number.isFinite(value) ? value : 0.65;
-    label.textContent = `Block auto-trades when reversal risk exceeds ${(settingsState.maxReversalRisk * 100).toFixed(1)}%`;
+    label.textContent = `Agreement trades blocked above ${(settingsState.maxReversalRisk * 100).toFixed(1)}%`;
     if (agreementLine) {
         agreementLine.textContent = `Agreement trades: blocked above ${(settingsState.maxReversalRisk * 100).toFixed(1)}%`;
     }

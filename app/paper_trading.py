@@ -236,6 +236,22 @@ def execute_paper_trade(
     if not ticker:
         return {"error": "Ticker is required."}
 
+    existing_any_side = PaperTrade.query.filter(
+        PaperTrade.ticker == ticker,
+        PaperTrade.resolved.is_(False),
+    ).first()
+    if existing_any_side:
+        logger.info(
+            "Trade blocked: already have open %s position on %s. Cannot trade both sides.",
+            existing_any_side.side,
+            ticker,
+        )
+        return {
+            "error": "Already have open position on this market",
+            "existing_side": existing_any_side.side,
+            "ticker": ticker,
+        }
+
     if signal_triggered:
         if PaperTrade.has_recent_auto_trade(ticker, normalized_side, minutes=20):
             return {

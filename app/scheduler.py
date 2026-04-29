@@ -157,42 +157,53 @@ def poll_and_signal() -> None:
                         entry_price = float(result.p_market or 0.0) if side == "YES" else (1.0 - float(result.p_market or 0.0))
                         contracts = (dollar_amount / entry_price) if entry_price > 0 else 0.0
                         if contracts > 0:
-                            price_ctx = _price_context_for_snapshot()
-                            snapshot_data = {
-                                "market_title": snapshot.get("market_title", "") or "",
-                                "seconds_to_close": int(snapshot.get("seconds_to_close", 0) or 0),
-                                "entry_bucket": int(snapshot.get("entry_bucket", 0) or 0),
-                                "p_market": float(snapshot.get("p_market", 0) or 0),
-                                "p_raw": float(snapshot.get("p_raw", 0) or 0),
-                                "signal_mode": AppSettings.get("signal_mode", "agreement") or "agreement",
-                                "agreement_region": result.agreement_region,
-                                "reason": result.reason,
-                                "confidence": float(result.confidence or 0),
-                                "reversal_risk": float(snapshot.get("reversal_risk", 0) or 0),
-                                "raw_features": {k: snapshot.get(k) for k in _SNAPSHOT_FEATURE_KEYS},
-                                **price_ctx,
-                            }
-                            trade_result = execute_paper_trade(
-                                side=side,
-                                contracts=contracts,
-                                dollar_amount=dollar_amount,
-                                use_dynamic_sizing=dynamic_sizing,
-                                ticker=str(snapshot["market_ticker"]),
-                                signal_id=saved_signal.id,
-                                signal_triggered=True,
-                                seconds_to_close=result.seconds_to_close,
-                                snapshot_data=snapshot_data,
-                                mispricing_gap=mispricing_gap,
-                                signal_mode=mode_str,
-                                volatility_override=("volatility override" in str(result.reason).lower()),
-                            )
-                            logger.info(
-                                "Auto-trade executed: %s %.2f contracts on %s | result=%s",
-                                side,
-                                contracts,
-                                snapshot["market_ticker"],
-                                trade_result,
-                            )
+                            open_position = PaperTrade.query.filter(
+                                PaperTrade.ticker == str(snapshot["market_ticker"]),
+                                PaperTrade.resolved.is_(False),
+                            ).first()
+                            if open_position:
+                                logger.info(
+                                    "Auto-trade skipped: open %s position already exists on %s",
+                                    open_position.side,
+                                    snapshot["market_ticker"],
+                                )
+                            else:
+                                price_ctx = _price_context_for_snapshot()
+                                snapshot_data = {
+                                    "market_title": snapshot.get("market_title", "") or "",
+                                    "seconds_to_close": int(snapshot.get("seconds_to_close", 0) or 0),
+                                    "entry_bucket": int(snapshot.get("entry_bucket", 0) or 0),
+                                    "p_market": float(snapshot.get("p_market", 0) or 0),
+                                    "p_raw": float(snapshot.get("p_raw", 0) or 0),
+                                    "signal_mode": AppSettings.get("signal_mode", "agreement") or "agreement",
+                                    "agreement_region": result.agreement_region,
+                                    "reason": result.reason,
+                                    "confidence": float(result.confidence or 0),
+                                    "reversal_risk": float(snapshot.get("reversal_risk", 0) or 0),
+                                    "raw_features": {k: snapshot.get(k) for k in _SNAPSHOT_FEATURE_KEYS},
+                                    **price_ctx,
+                                }
+                                trade_result = execute_paper_trade(
+                                    side=side,
+                                    contracts=contracts,
+                                    dollar_amount=dollar_amount,
+                                    use_dynamic_sizing=dynamic_sizing,
+                                    ticker=str(snapshot["market_ticker"]),
+                                    signal_id=saved_signal.id,
+                                    signal_triggered=True,
+                                    seconds_to_close=result.seconds_to_close,
+                                    snapshot_data=snapshot_data,
+                                    mispricing_gap=mispricing_gap,
+                                    signal_mode=mode_str,
+                                    volatility_override=("volatility override" in str(result.reason).lower()),
+                                )
+                                logger.info(
+                                    "Auto-trade executed: %s %.2f contracts on %s | result=%s",
+                                    side,
+                                    contracts,
+                                    snapshot["market_ticker"],
+                                    trade_result,
+                                )
                         else:
                             logger.warning("Skipped auto-trade because entry price is invalid for side %s", side)
 

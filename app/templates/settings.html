@@ -135,8 +135,8 @@
         </header>
         <div class="settings-field">
             <label for="max-reversal-risk-slider">
-                Max Reversal Risk:
-                <span class="mono" id="max-reversal-risk-label">Block auto-trades when reversal risk exceeds 65.0%</span>
+                Max Reversal Risk (Agreement):
+                <span class="mono" id="max-reversal-risk-label">Agreement trades blocked above 65.0%</span>
             </label>
             <div class="settings-inline-value">
                 <input
@@ -155,13 +155,13 @@
                 <span class="text-danger">Permissive (65-100%)</span>
             </p>
             <p class="text-muted">
-                Controls volatility threshold for AGREEMENT trades only. Mispricing trades (model/market divergence) are always
-                allowed during high volatility — volatility creates mispricing opportunities.
+                Controls volatility threshold for AGREEMENT trades only.
                 <br>
-                Lower threshold = stricter filter for agreement trades. Mispricing signals bypass this guard entirely.
+                Lower threshold = stricter filter for agreement trades.
             </p>
             <p class="text-muted" id="agreement-volatility-line">Agreement trades: blocked above --</p>
-            <p class="text-success" id="mispricing-volatility-line">Mispricing trades: always active ✓</p>
+            <p class="text-warning" id="mispricing-volatility-line">Mispricing trades: allowed above agreement limit up to 65.0%</p>
+            <p class="text-danger">Max Reversal Risk (Mispricing cap): <span class="mono">65%</span> — hard safety limit for all trades.</p>
         </div>
     </article>
 
