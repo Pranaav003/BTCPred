@@ -27,7 +27,6 @@ from app.paper_trading import (
     reset_portfolio,
 )
 from app.resolver import get_resolution_summary, resolve_pending_markets
-from app.scheduler import get_latest_snapshot
 from app.signal_engine import (
     MISPRICING_THRESHOLD,
     PROFILE_OVERRIDE_FIELDS,
@@ -813,11 +812,11 @@ def reset_risk_profile(profile_name: str):
 
 @api_bp.route("/live-snapshot", methods=["GET"])
 def live_snapshot():
-    snapshot = get_latest_snapshot()
+    # Always compute at request time so this endpoint matches `get_live_snapshot()`
+    # (scheduler in-memory cache can be tens of seconds behind and diverges curl vs UI).
+    snapshot = get_live_snapshot()
     if snapshot is None:
-        snapshot = get_live_snapshot()
-        if snapshot is None:
-            return jsonify({"error": "No active market"}), 404
+        return jsonify({"error": "No active market"}), 404
     from app.signal_engine import evaluate_live_signal, signal_to_dict
     result = evaluate_live_signal(snapshot)
     signal = signal_to_dict(result) if result else {}
