@@ -1,6 +1,9 @@
-const DASHBOARD_PORTFOLIO_POLL_MS = 15000;
-const LIVE_SNAPSHOT_POLL_MS = 5000;
-const DASHBOARD_INTEL_POLL_MS = 30000;
+const POLL_INTERVALS = {
+    fast: 5000,
+    normal: 15000,
+    slow: 60000,
+    vslow: 300000,
+};
 const MAX_CHART_POINTS = 50;
 const DEFAULT_YES_CUTOFF = 0.65;
 
@@ -281,7 +284,7 @@ async function refreshDashboardIntelBlocks() {
         apiFetch("/api/analytics/agreement-regions", { headers: { Accept: "application/json" } }),
         apiFetch("/api/settings", { headers: { Accept: "application/json" } }),
         apiFetch("/api/paper/history?limit=100", { headers: { Accept: "application/json" } }),
-        apiFetch("/api/signals?limit=1000", { headers: { Accept: "application/json" } }),
+        apiFetch("/api/signals?limit=100", { headers: { Accept: "application/json" } }),
         apiFetch("/api/metrics", { headers: { Accept: "application/json" } }),
     ]);
     if (regionsPayload?.regions) {
@@ -1612,22 +1615,25 @@ async function bootstrapDashboard() {
     await bootstrapChartSeed();
     await fetchWindowSettings();
     await fetchLiveSnapshot();
-    await fetchMarketPrices();
-    await fetchPortfolio();
-    await fetchPositionsForToasts();
-    await fetchResolvedForToasts();
-    await fetchDashboardRecentTrades();
-    await refreshDashboardIntelBlocks();
+    window.setTimeout(() => fetchMarketPrices(), 500);
+    window.setTimeout(() => fetchPortfolio(), 1000);
+    window.setTimeout(() => fetchPositionsForToasts(), 1500);
+    window.setTimeout(() => fetchResolvedForToasts(), 2000);
+    window.setTimeout(() => refreshDashboardIntelBlocks(), 3000);
+    window.setTimeout(() => fetchDashboardRecentTrades(), 4000);
 
-    setInterval(() => fetchPortfolio(), DASHBOARD_PORTFOLIO_POLL_MS);
-    setInterval(() => fetchLiveSnapshot(), LIVE_SNAPSHOT_POLL_MS);
-    setInterval(() => fetchMarketPrices(), 10000);
-    setInterval(() => fetchPositionsForToasts(), 10000);
-    setInterval(() => fetchResolvedForToasts(), 15000);
+    setInterval(() => fetchLiveSnapshot(), POLL_INTERVALS.fast);
+    setInterval(() => fetchMarketPrices(), POLL_INTERVALS.fast);
     setInterval(() => {
+        fetchPortfolio();
+        fetchPositionsForToasts();
+        fetchResolvedForToasts();
         fetchDashboardRecentTrades();
+    }, POLL_INTERVALS.normal);
+    setInterval(() => {
         refreshDashboardIntelBlocks();
-    }, DASHBOARD_INTEL_POLL_MS);
+        fetchWindowSettings();
+    }, POLL_INTERVALS.slow);
 }
 
 window.addEventListener("DOMContentLoaded", () => {

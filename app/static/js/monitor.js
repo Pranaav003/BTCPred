@@ -10,6 +10,13 @@ const monitorState = {
     snapshotChart: null,
 };
 
+const MONITOR_POLL_INTERVALS = {
+    fast: 5000,
+    normal: 15000,
+    slow: 60000,
+    vslow: 300000,
+};
+
 function mToPercent(value) {
     return typeof value === "number" ? `${(value * 100).toFixed(1)}%` : "--";
 }
@@ -705,24 +712,25 @@ window.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("scheduler-stop-btn")?.addEventListener("click", () => mAction("/api/scheduler/stop", "Scheduler stopped"));
     document.getElementById("resolution-trigger-btn")?.addEventListener("click", () => mAction("/api/resolution/trigger", "Resolution triggered"));
     mWireDataCollectionExport();
-    await Promise.all([
-        mFetchSchedulerStatus(),
-        mFetchResolutionSummary(),
-        mFetchDataCollectionStatus(),
-        mFetchPortfolio(),
-        mFetchPositions(),
-        mFetchHistory(),
-    ]);
-    setInterval(() => {
-        mFetchSchedulerStatus();
-        mFetchResolutionSummary();
-        mFetchDataCollectionStatus();
-    }, 15000);
+    await mFetchPositions();
+    window.setTimeout(() => mFetchPortfolio(), 1000);
+    window.setTimeout(() => mFetchHistory(), 2000);
+    window.setTimeout(() => mFetchSchedulerStatus(), 3000);
+    window.setTimeout(() => mFetchResolutionSummary(), 3500);
+    window.setTimeout(() => mFetchDataCollectionStatus(), 4000);
+
     setInterval(() => {
         mFetchPositions();
-    }, 10000);
+    }, MONITOR_POLL_INTERVALS.normal);
     setInterval(() => {
         mFetchPortfolio();
         mFetchHistory();
-    }, 15000);
+    }, MONITOR_POLL_INTERVALS.normal);
+    setInterval(() => {
+        mFetchSchedulerStatus();
+        mFetchResolutionSummary();
+    }, MONITOR_POLL_INTERVALS.slow);
+    setInterval(() => {
+        mFetchDataCollectionStatus();
+    }, MONITOR_POLL_INTERVALS.vslow);
 });

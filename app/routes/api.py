@@ -120,7 +120,8 @@ def market_prices():
 
 @api_bp.route("/signals")
 def signals():
-    limit_param = request.args.get("limit", default=50, type=int) or 50
+    limit_param = request.args.get("limit", default=100, type=int) or 100
+    limit_param = max(1, min(limit_param, 500))
     results = get_recent_signals(limit=limit_param)
     return jsonify({"signals": results, "count": len(results)})
 
@@ -215,7 +216,7 @@ def scheduler_stop():
 @api_bp.route("/scheduler/status", methods=["GET"])
 def scheduler_status():
     running = AppSettings.get("scheduler_running", "false") == "true"
-    poll_interval = int(AppSettings.get("poll_interval_seconds", "15"))
+    poll_interval = int(AppSettings.get("poll_interval_seconds", "8"))
     auto_trade_enabled = AppSettings.get("auto_trade_enabled", "false") == "true"
     return jsonify(
         {

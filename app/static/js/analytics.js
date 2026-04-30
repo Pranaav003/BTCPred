@@ -726,7 +726,7 @@ async function fetchAllAnalytics() {
             apiFetch("/api/analytics/accuracy-by-bucket", { headers: { Accept: "application/json" } }),
             apiFetch("/api/analytics/agreement-regions", { headers: { Accept: "application/json" } }),
             apiFetch("/api/analytics/accuracy-by-cutoff", { headers: { Accept: "application/json" } }),
-            apiFetch("/api/signals?limit=500", { headers: { Accept: "application/json" } }),
+            apiFetch("/api/signals?limit=200", { headers: { Accept: "application/json" } }),
             apiFetch("/api/signals/history?limit=200", { headers: { Accept: "application/json" } }),
             apiFetch("/api/analytics/mispricing-backtest", { headers: { Accept: "application/json" } }),
             apiFetch("/api/settings", { headers: { Accept: "application/json" } }),

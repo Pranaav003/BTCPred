@@ -61,6 +61,18 @@ The sklearn version must match in both environments. If it differs, retrain the 
 - Dashboard is accessible from any browser via the Render URL.
 - Paper trades and signals persist across restarts with PostgreSQL.
 
+## Memory requirements
+
+The free Render tier can run out of memory under sustained dashboard and scheduler load.
+Recommended plans:
+- Starter (~$7/mo) for dedicated web memory baseline.
+- Standard (~$25/mo) for larger headroom and burst tolerance.
+
+Main memory consumers:
+- Growing signal/trade history in the database query layer.
+- Kalshi API response payloads and in-process caches.
+- Gunicorn workers/threads and chart-heavy dashboard polling.
+
 ## Project Structure
 
 ```text

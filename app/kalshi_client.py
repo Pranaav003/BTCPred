@@ -23,6 +23,9 @@ _cache_lock = Lock()
 _market_cache: dict[str, dict[str, Any]] = {}
 _candle_cache: dict[str, dict[str, Any]] = {}
 _trade_cache: dict[str, dict[str, Any]] = {}
+_request_lock = Lock()
+_last_request_time = 0.0
+_min_request_interval = 1.0
 
 MARKET_CACHE_TTL = 30.0
 CANDLE_CACHE_TTL = 12.0
@@ -37,19 +40,52 @@ _MAX_TRADE_CACHE_ENTRIES = 20
 # See .env.example for KALSHI_API_KEY and KALSHI_API_SECRET.
 
 
-def _get(url: str, params: dict[str, Any] | None = None) -> dict | None:
-    """GET JSON helper that never raises and returns None on failure."""
-    try:
-        response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            logger.error("Kalshi API returned non-dict JSON for %s", url)
+def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 3) -> dict | None:
+    """GET JSON helper with throttling/retries; returns None on failure."""
+    global _last_request_time
+    for attempt in range(max_retries):
+        try:
+            # Global request pacing to reduce 429s under concurrent polling.
+            with _request_lock:
+                now = time.time()
+                elapsed = now - _last_request_time
+                if elapsed < _min_request_interval:
+                    time.sleep(_min_request_interval - elapsed)
+                _last_request_time = time.time()
+
+            response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
+            if response.status_code == 429:
+                wait = (2**attempt) * 5
+                logger.warning(
+                    "Rate limited by Kalshi (attempt %s/%s). Waiting %ss before retry.",
+                    attempt + 1,
+                    max_retries,
+                    wait,
+                )
+                time.sleep(wait)
+                continue
+
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                logger.error("Kalshi API returned non-dict JSON for %s", url)
+                return None
+            return payload
+        except requests.exceptions.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code == 429 and attempt < max_retries - 1:
+                wait = (2**attempt) * 5
+                logger.warning("Kalshi HTTP 429 retry in %ss for %s", wait, url)
+                time.sleep(wait)
+                continue
+            logger.error("Kalshi GET failed url=%s params=%s error=%s", url, params, exc)
             return None
-        return payload
-    except Exception as exc:
-        logger.exception("Kalshi GET failed url=%s params=%s error=%s", url, params, exc)
-        return None
+        except Exception as exc:
+            logger.error("Kalshi GET failed url=%s params=%s error=%s", url, params, exc)
+            return None
+
+    logger.error("Kalshi GET failed after %s retries: url=%s params=%s", max_retries, url, params)
+    return None
 
 
 def _to_unix(value: Any) -> int | None:
