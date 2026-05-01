@@ -3,12 +3,14 @@
 import csv
 import io
 import json
+import os
+import shutil
 import zipfile
 import tempfile
 from pathlib import Path
 from datetime import UTC, datetime
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, jsonify, request, send_file, stream_with_context
 import sklearn
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
@@ -66,6 +68,74 @@ def _csv_string(rows):
     for row in rows:
         writer.writerow(row)
     return output.getvalue()
+
+
+def _query_row_keys(query, serialize_fn, batch: int = 500) -> list[str]:
+    """Collect sorted union of dict keys for CSV export without loading all rows."""
+    keys: set[str] = set()
+    for row in query.yield_per(batch):
+        keys.update(serialize_fn(row).keys())
+    return sorted(keys)
+
+
+def _write_query_csv_stream(query, path: str, fieldnames: list[str], serialize_fn, batch: int = 500) -> None:
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore", restval="")
+        writer.writeheader()
+        for row in query.yield_per(batch):
+            writer.writerow(serialize_fn(row))
+
+
+_TRAINING_CSV_META_KEYS = (
+    "logged_at",
+    "ticker",
+    "p_market",
+    "p_raw",
+    "signal",
+    "agreement_region",
+    "resolved",
+    "pnl",
+    "outcome_correct",
+    "entry_bucket",
+)
+
+
+def _training_csv_collect_fieldnames() -> list[str]:
+    keys: set[str] = set(_TRAINING_CSV_META_KEYS)
+    q = Signal.query.join(Market, Signal.market_id == Market.id).order_by(Signal.id.asc())
+    for row in q.yield_per(500):
+        if not row.raw_features_json:
+            continue
+        try:
+            raw = json.loads(row.raw_features_json)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(raw, dict):
+            keys.update(raw.keys())
+    return sorted(keys)
+
+
+def _merged_training_row(row) -> dict[str, object]:
+    try:
+        raw_features = json.loads(row.raw_features_json) if row.raw_features_json else {}
+    except json.JSONDecodeError:
+        raw_features = {}
+    merged: dict[str, object] = dict(raw_features) if isinstance(raw_features, dict) else {}
+    merged.update(
+        {
+            "logged_at": _utc_iso_z(row.logged_at),
+            "ticker": row.market.ticker if row.market else None,
+            "p_market": row.p_market,
+            "p_raw": row.p_raw,
+            "signal": row.signal,
+            "agreement_region": row.agreement_region,
+            "resolved": row.resolved,
+            "pnl": row.pnl,
+            "outcome_correct": row.outcome_correct,
+            "entry_bucket": row.entry_bucket,
+        }
+    )
+    return merged
 
 
 @api_bp.route("/health")
@@ -487,8 +557,9 @@ def analytics_mispricing_backtest():
 
 @api_bp.route("/export/full", methods=["GET"])
 def export_full():
+    """Stream JSON to avoid loading all rows + full serialized string in memory (OOM on Render)."""
     now = datetime.now(UTC)
-    model_info = {"loaded": False}
+    model_info: dict[str, object] = {"loaded": False}
     try:
         bundle = get_model()
         model_info = {
@@ -502,69 +573,133 @@ def export_full():
     except RuntimeError:
         pass
 
-    payload = {
-        "signals": [_serialize_row(row) for row in Signal.query.order_by(Signal.id.asc()).all()],
-        "trades": [_serialize_row(row) for row in PaperTrade.query.order_by(PaperTrade.id.asc()).all()],
-        "markets": [_serialize_row(row) for row in Market.query.order_by(Market.id.asc()).all()],
-        "portfolio": get_portfolio_summary(),
-        "settings": {row.key: row.value for row in AppSettings.query.order_by(AppSettings.key.asc()).all()},
-        "model_info": model_info,
-        "exported_at": _utc_iso_z(now),
-    }
-    response = Response(json.dumps(payload, ensure_ascii=False, indent=2), mimetype="application/json")
+    portfolio = get_portfolio_summary()
+    settings = {row.key: row.value for row in AppSettings.query.order_by(AppSettings.key.asc()).all()}
+    _json_opts = {"ensure_ascii": False, "separators": (",", ":")}
+
+    def generate():
+        yield "{"
+        yield '"signals":['
+        first = True
+        for row in Signal.query.order_by(Signal.id.asc()).yield_per(500):
+            if not first:
+                yield ","
+            first = False
+            yield json.dumps(_serialize_row(row), **_json_opts)
+        yield '],"trades":['
+        first = True
+        for row in PaperTrade.query.order_by(PaperTrade.id.asc()).yield_per(500):
+            if not first:
+                yield ","
+            first = False
+            yield json.dumps(_serialize_row(row), **_json_opts)
+        yield '],"markets":['
+        first = True
+        for row in Market.query.order_by(Market.id.asc()).yield_per(500):
+            if not first:
+                yield ","
+            first = False
+            yield json.dumps(_serialize_row(row), **_json_opts)
+        yield '],"portfolio":'
+        yield json.dumps(portfolio, **_json_opts)
+        yield ',"settings":'
+        yield json.dumps(settings, **_json_opts)
+        yield ',"model_info":'
+        yield json.dumps(model_info, **_json_opts)
+        yield ',"exported_at":'
+        yield json.dumps(_utc_iso_z(now), **_json_opts)
+        yield "}"
+
+    response = Response(stream_with_context(generate()), mimetype="application/json")
     response.headers["Content-Disposition"] = f'attachment; filename="kalshi_signal_export_{now.strftime("%Y%m%d")}.json"'
     return response
 
 
 @api_bp.route("/export/csv", methods=["GET"])
 def export_csv():
+    """Write CSVs to disk then zip — avoids holding full tables in RAM."""
     now = datetime.now(UTC)
-    signals_rows = [_serialize_row(row) for row in Signal.query.order_by(Signal.id.asc()).all()]
-    trades_rows = [_serialize_row(row) for row in PaperTrade.query.order_by(PaperTrade.id.asc()).all()]
-    signals_csv = _csv_string(signals_rows)
-    trades_csv = _csv_string(trades_rows)
+    tmpd = tempfile.mkdtemp(prefix="export_csv_")
+    zip_path: str | None = None
+    try:
+        signals_path = os.path.join(tmpd, "signals.csv")
+        trades_path = os.path.join(tmpd, "trades.csv")
+        sig_keys = _query_row_keys(Signal.query.order_by(Signal.id.asc()), _serialize_row)
+        tr_keys = _query_row_keys(PaperTrade.query.order_by(PaperTrade.id.asc()), _serialize_row)
+        _write_query_csv_stream(Signal.query.order_by(Signal.id.asc()), signals_path, sig_keys, _serialize_row)
+        _write_query_csv_stream(PaperTrade.query.order_by(PaperTrade.id.asc()), trades_path, tr_keys, _serialize_row)
+        fd, zip_path = tempfile.mkstemp(prefix="kalshi_data_", suffix=".zip")
+        os.close(fd)
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.write(signals_path, "signals.csv")
+            zf.write(trades_path, "trades.csv")
+    except Exception:
+        if zip_path and os.path.isfile(zip_path):
+            try:
+                os.unlink(zip_path)
+            except OSError:
+                pass
+        raise
+    finally:
+        shutil.rmtree(tmpd, ignore_errors=True)
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("signals.csv", signals_csv)
-        zf.writestr("trades.csv", trades_csv)
-    buf.seek(0)
+    if not zip_path or not os.path.isfile(zip_path):
+        return jsonify({"error": "export failed"}), 500
 
-    response = Response(buf.getvalue(), mimetype="application/zip")
-    response.headers["Content-Disposition"] = f'attachment; filename="kalshi_data_{now.strftime("%Y%m%d")}.zip"'
+    response = send_file(
+        zip_path,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"kalshi_data_{now.strftime('%Y%m%d')}.zip",
+    )
+
+    def _cleanup_zip() -> None:
+        try:
+            if zip_path and os.path.isfile(zip_path):
+                os.unlink(zip_path)
+        except OSError:
+            pass
+
+    response.call_on_close(_cleanup_zip)
     return response
 
 
 @api_bp.route("/export/training-csv", methods=["GET"])
 def export_training_csv():
+    """Two-pass training CSV: stable header, bounded memory."""
     now = datetime.now(UTC)
-    rows = Signal.query.join(Market, Signal.market_id == Market.id).order_by(Signal.id.asc()).all()
-    training_rows = []
-    for row in rows:
+    fieldnames = _training_csv_collect_fieldnames()
+    fd, out_path = tempfile.mkstemp(prefix="kalshi_training_", suffix=".csv")
+    os.close(fd)
+    try:
+        with open(out_path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore", restval="")
+            writer.writeheader()
+            q = Signal.query.join(Market, Signal.market_id == Market.id).order_by(Signal.id.asc())
+            for row in q.yield_per(500):
+                writer.writerow(_merged_training_row(row))
+    except Exception:
         try:
-            raw_features = json.loads(row.raw_features_json) if row.raw_features_json else {}
-        except json.JSONDecodeError:
-            raw_features = {}
-        merged = dict(raw_features)
-        merged.update(
-            {
-                "logged_at": _utc_iso_z(row.logged_at),
-                "ticker": row.market.ticker if row.market else None,
-                "p_market": row.p_market,
-                "p_raw": row.p_raw,
-                "signal": row.signal,
-                "agreement_region": row.agreement_region,
-                "resolved": row.resolved,
-                "pnl": row.pnl,
-                "outcome_correct": row.outcome_correct,
-                "entry_bucket": row.entry_bucket,
-            }
-        )
-        training_rows.append(merged)
+            os.unlink(out_path)
+        except OSError:
+            pass
+        raise
 
-    csv_data = _csv_string(training_rows)
-    response = Response(csv_data, mimetype="text/csv")
-    response.headers["Content-Disposition"] = f'attachment; filename="kalshi_training_data_{now.strftime("%Y%m%d")}.csv"'
+    response = send_file(
+        out_path,
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name=f"kalshi_training_data_{now.strftime('%Y%m%d')}.csv",
+    )
+
+    def _cleanup_training() -> None:
+        try:
+            if os.path.isfile(out_path):
+                os.unlink(out_path)
+        except OSError:
+            pass
+
+    response.call_on_close(_cleanup_training)
     return response
 
 
@@ -586,18 +721,23 @@ def export_live_training_data():
         except Exception:
             pass
         return jsonify({"error": "No live resolved rows available yet.", "rows": 0, "skipped": skipped}), 404
-    with open(tmp_path, "r", encoding="utf-8") as f:
-        csv_data = f.read()
-    try:
-        Path(tmp_path).unlink(missing_ok=True)
-    except Exception:
-        pass
-    response = Response(csv_data, mimetype="text/csv")
-    response.headers["Content-Disposition"] = (
-        f'attachment; filename="live_training_data_{now.strftime("%Y%m%d")}.csv"'
+    response = send_file(
+        tmp_path,
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name=f"live_training_data_{now.strftime('%Y%m%d')}.csv",
     )
     response.headers["X-Live-Rows"] = str(rows)
     response.headers["X-Live-Skipped"] = str(skipped)
+
+    def _cleanup_live() -> None:
+        try:
+            if os.path.isfile(tmp_path):
+                os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    response.call_on_close(_cleanup_live)
     return response
 
 
