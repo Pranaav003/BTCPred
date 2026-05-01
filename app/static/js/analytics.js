@@ -719,17 +719,23 @@ function setupExportDropdown() {
 async function fetchAllAnalytics() {
     if (!document.getElementById("pnl-curve-chart")) return;
     toggleLoading(true);
+    const hdr = { headers: { Accept: "application/json" } };
     try {
-        const [metrics, pnlCurve, byBucket, byRegion, byCutoff, signalsPayload, probabilityHistory, mispricingBacktest, settings] = await Promise.all([
-            apiFetch("/api/metrics", { headers: { Accept: "application/json" } }),
-            apiFetch("/api/analytics/pnl-curve", { headers: { Accept: "application/json" } }),
-            apiFetch("/api/analytics/accuracy-by-bucket", { headers: { Accept: "application/json" } }),
-            apiFetch("/api/analytics/agreement-regions", { headers: { Accept: "application/json" } }),
-            apiFetch("/api/analytics/accuracy-by-cutoff", { headers: { Accept: "application/json" } }),
-            apiFetch("/api/signals?limit=200", { headers: { Accept: "application/json" } }),
-            apiFetch("/api/signals/history?limit=200", { headers: { Accept: "application/json" } }),
-            apiFetch("/api/analytics/mispricing-backtest", { headers: { Accept: "application/json" } }),
-            apiFetch("/api/settings", { headers: { Accept: "application/json" } }),
+        // Stagger fetches — 9 simultaneous heavy responses were spiking RSS on ~512MB workers.
+        const [metrics, pnlCurve, byBucket] = await Promise.all([
+            apiFetch("/api/metrics", hdr),
+            apiFetch("/api/analytics/pnl-curve", hdr),
+            apiFetch("/api/analytics/accuracy-by-bucket", hdr),
+        ]);
+        const [byRegion, byCutoff, signalsPayload] = await Promise.all([
+            apiFetch("/api/analytics/agreement-regions", hdr),
+            apiFetch("/api/analytics/accuracy-by-cutoff", hdr),
+            apiFetch("/api/signals?limit=100", hdr),
+        ]);
+        const [probabilityHistory, mispricingBacktest, settings] = await Promise.all([
+            apiFetch("/api/signals/history?limit=100", hdr),
+            apiFetch("/api/analytics/mispricing-backtest", hdr),
+            apiFetch("/api/settings", hdr),
         ]);
         if (!metrics || !pnlCurve || !byBucket || !byRegion || !byCutoff || !signalsPayload || !mispricingBacktest || !settings) {
             throw new Error("One or more analytics endpoints failed");

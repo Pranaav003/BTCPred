@@ -199,6 +199,7 @@ def signals():
 @api_bp.route("/signals/history")
 def signals_history():
     limit_param = request.args.get("limit", default=50, type=int) or 50
+    limit_param = max(1, min(limit_param, 500))
     results = get_probability_history(limit=limit_param)
     return jsonify({"history": results})
 
@@ -350,29 +351,36 @@ def signal_detail(signal_id: int):
 
 @api_bp.route("/analytics/pnl-curve", methods=["GET"])
 def analytics_pnl_curve():
-    rows = (
-        Signal.query.join(Market, Signal.market_id == Market.id)
+    # Narrow SELECT only — avoids loading raw_features_json (megabytes × row count → OOM on 512MB).
+    skinny = (
+        db.session.query(
+            Signal.logged_at,
+            Signal.pnl,
+            Signal.signal,
+            Signal.outcome_correct,
+            Market.ticker,
+        )
+        .join(Market, Signal.market_id == Market.id)
         .filter(
             Signal.resolved.is_(True),
             Signal.signal != "NO SIGNAL",
         )
         .order_by(Signal.logged_at.asc())
-        .all()
     )
 
     curve = []
     running = 0.0
-    for signal in rows:
-        pnl = float(signal.pnl or 0.0)
+    for logged_at, pnl_v, sig, corr, ticker in skinny:
+        pnl = float(pnl_v or 0.0)
         running += pnl
         curve.append(
             {
-                "logged_at": _utc_iso_z(signal.logged_at),
-                "ticker": signal.market.ticker if signal.market else None,
-                "signal": signal.signal,
-                "pnl": signal.pnl,
+                "logged_at": _utc_iso_z(logged_at),
+                "ticker": ticker,
+                "signal": sig,
+                "pnl": pnl_v,
                 "cumulative_pnl": running,
-                "outcome_correct": signal.outcome_correct,
+                "outcome_correct": corr,
             }
         )
     return jsonify({"curve": curve})
@@ -408,7 +416,12 @@ def analytics_accuracy_by_bucket():
 @api_bp.route("/analytics/accuracy-by-cutoff", methods=["GET"])
 def analytics_accuracy_by_cutoff():
     rows = (
-        Signal.query.join(Market, Signal.market_id == Market.id)
+        db.session.query(
+            Signal.p_market,
+            Signal.p_raw,
+            Market.final_outcome_yes,
+        )
+        .join(Market, Signal.market_id == Market.id)
         .filter(Signal.resolved.is_(True), Market.final_outcome_yes.is_not(None))
         .all()
     )
@@ -416,12 +429,12 @@ def analytics_accuracy_by_cutoff():
     cutoffs_data = []
     for cutoff in [0.55, 0.60, 0.65, 0.70, 0.75]:
         fired = []
-        for row in rows:
-            p_market = row.p_market if row.p_market is not None else 0.0
-            p_raw = row.p_raw if row.p_raw is not None else 0.0
-            if p_market >= cutoff and p_raw >= cutoff:
-                outcome_yes = bool(row.market.final_outcome_yes)
-                pnl = (1.0 if outcome_yes else 0.0) - p_market
+        for p_market, p_raw, final_yes in rows:
+            pm = p_market if p_market is not None else 0.0
+            pr = p_raw if p_raw is not None else 0.0
+            if pm >= cutoff and pr >= cutoff:
+                outcome_yes = bool(final_yes)
+                pnl = (1.0 if outcome_yes else 0.0) - pm
                 fired.append({"outcome_yes": outcome_yes, "pnl": pnl})
 
         count = len(fired)
@@ -487,7 +500,14 @@ def analytics_agreement_regions():
 def analytics_mispricing_backtest():
     threshold = float(AppSettings.get("mispricing_threshold", str(MISPRICING_THRESHOLD)) or MISPRICING_THRESHOLD)
     rows = (
-        Signal.query.join(Market, Signal.market_id == Market.id)
+        db.session.query(
+            Signal.p_market,
+            Signal.p_raw,
+            Signal.seconds_to_close,
+            Signal.entry_bucket,
+            Market.final_outcome_yes,
+        )
+        .join(Market, Signal.market_id == Market.id)
         .filter(
             Signal.resolved.is_(True),
             Signal.p_market.is_not(None),
@@ -504,10 +524,10 @@ def analytics_mispricing_backtest():
     ]
     stats = {label: {"count": 0, "correct": 0, "pnl_sum": 0.0} for label, _, _ in bucket_defs}
 
-    for row in rows:
-        p_market = float(row.p_market)
-        p_raw = float(row.p_raw)
-        gap_abs = abs(p_raw - p_market)
+    for p_market, p_raw, sec_close, eb, final_yes in rows:
+        pm = float(p_market)
+        pr = float(p_raw)
+        gap_abs = abs(pr - pm)
         bucket = None
         for label, lower, upper in bucket_defs:
             if gap_abs >= lower and (upper is None or gap_abs < upper):
@@ -517,10 +537,10 @@ def analytics_mispricing_backtest():
             continue
 
         result = evaluate_mispricing_signal(
-            p_market=p_market,
-            p_raw=p_raw,
-            seconds_to_close=int(row.seconds_to_close or 0),
-            entry_bucket=int(row.entry_bucket or 60),
+            p_market=pm,
+            p_raw=pr,
+            seconds_to_close=int(sec_close or 0),
+            entry_bucket=int(eb or 60),
             min_seconds=0,
             max_seconds=10_000,
             mispricing_threshold=threshold,
@@ -528,12 +548,12 @@ def analytics_mispricing_backtest():
         if result.signal == "NO SIGNAL":
             continue
 
-        outcome_yes = bool(row.market.final_outcome_yes)
+        outcome_yes = bool(final_yes)
         if result.signal == "PAPER BUY YES":
-            pnl = (1.0 - p_market) if outcome_yes else -p_market
+            pnl = (1.0 - pm) if outcome_yes else -pm
             correct = outcome_yes
         else:
-            pnl = p_market if not outcome_yes else -(1.0 - p_market)
+            pnl = pm if not outcome_yes else -(1.0 - pm)
             correct = not outcome_yes
 
         stats[bucket]["count"] += 1

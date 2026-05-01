@@ -174,7 +174,14 @@ def get_signal_metrics() -> dict:
 def get_probability_history(limit: int = 50) -> list[dict]:
     """Return ascending probability history for charting."""
     rows = (
-        db.session.query(Signal, Market)
+        db.session.query(
+            Signal.logged_at,
+            Signal.p_market,
+            Signal.p_raw,
+            Signal.signal,
+            Market.title,
+            Market.close_time,
+        )
         .join(Market, Signal.market_id == Market.id)
         .order_by(Signal.logged_at.desc())
         .limit(limit)
@@ -184,14 +191,14 @@ def get_probability_history(limit: int = 50) -> list[dict]:
 
     return [
         {
-            "logged_at": _utc_iso_z(signal.logged_at),
-            "p_market": signal.p_market,
-            "p_raw": signal.p_raw,
-            "signal": signal.signal,
-            "market_title": market.title,
-            "close_time_iso": _utc_iso_z(market.close_time),
+            "logged_at": _utc_iso_z(logged_at),
+            "p_market": p_market,
+            "p_raw": p_raw,
+            "signal": sig,
+            "market_title": title,
+            "close_time_iso": _utc_iso_z(close_time),
         }
-        for signal, market in rows
+        for logged_at, p_market, p_raw, sig, title, close_time in rows
     ]
 
 
