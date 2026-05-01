@@ -18,6 +18,8 @@ PREFERRED_STRIKE = "-30"
 
 logger = logging.getLogger(__name__)
 _btc_price_cache: dict[str, float | None] = {"price": None, "ts": 0}
+_btc_429_until = 0.0
+BTC_PRICE_CACHE_TTL = 60.0
 
 _cache_lock = Lock()
 _market_cache: dict[str, dict[str, Any]] = {}
@@ -433,9 +435,11 @@ def get_market_resolution(ticker: str) -> dict | None:
 
 def get_btc_price() -> float | None:
     """Return cached live BTC spot price in USD from CoinGecko."""
-    global _btc_price_cache
+    global _btc_price_cache, _btc_429_until
     now = time.time()
-    if (now - float(_btc_price_cache.get("ts") or 0)) < 10:
+    if now < _btc_429_until:
+        return _btc_price_cache.get("price")
+    if (now - float(_btc_price_cache.get("ts") or 0)) < BTC_PRICE_CACHE_TTL:
         return _btc_price_cache.get("price")
     try:
         response = requests.get(
@@ -443,6 +447,10 @@ def get_btc_price() -> float | None:
             params={"ids": "bitcoin", "vs_currencies": "usd"},
             timeout=REQUEST_TIMEOUT,
         )
+        if response.status_code == 429:
+            _btc_429_until = time.time() + 300
+            logger.warning("CoinGecko rate limited, backing off 5 min")
+            return _btc_price_cache.get("price")
         response.raise_for_status()
         payload = response.json()
         price_raw = payload.get("bitcoin", {}).get("usd") if isinstance(payload, dict) else None
