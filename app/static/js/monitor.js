@@ -12,7 +12,7 @@ const monitorState = {
 
 const MONITOR_POLL_INTERVALS = {
     fast: 5000,
-    normal: 15000,
+    normal: 30000,
     slow: 60000,
     vslow: 300000,
 };
@@ -563,7 +563,7 @@ async function mFetchPositions() {
 }
 
 async function mFetchHistory() {
-    const payload = await mApiFetch("/api/paper/history?limit=200", { headers: { Accept: "application/json" } });
+    const payload = await mApiFetch("/api/paper/history?limit=100", { headers: { Accept: "application/json" } });
     if (!payload) return;
     const history = Array.isArray(payload.trades) ? payload.trades : [];
     if (!monitorState.seededResolvedIds) {

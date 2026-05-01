@@ -45,6 +45,9 @@ class ProductionConfig(BaseConfig):
     if uri.startswith("postgresql://"):
         SQLALCHEMY_ENGINE_OPTIONS = {
             **BaseConfig.SQLALCHEMY_ENGINE_OPTIONS,
+            "pool_size": 2,
+            "max_overflow": 1,
+            "pool_timeout": 15,
             "connect_args": {
                 "sslmode": "require",
                 "connect_timeout": 10,
