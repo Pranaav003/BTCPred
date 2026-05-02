@@ -12,6 +12,8 @@ from app.model_loader import predict_proba_raw
 logger = logging.getLogger(__name__)
 MISPRICING_THRESHOLD = 0.10
 MAX_MISPRICING_OVERRIDE_RISK = 0.65
+# Never signal or enter when the traded side costs less than this (extreme leverage).
+MIN_ENTRY_PRICE = 0.05
 
 RISK_PROFILES = {
     "conservative": {
@@ -284,10 +286,23 @@ def evaluate_signal(
         signal = "NO SIGNAL"
         reason = f"Region: {region} — no trade condition met"
 
-    # Profitability filter guard to avoid low-upside entries.
+    # Profitability filter guard to avoid low-upside entries and extreme leverage.
     if signal in {"PAPER BUY YES", "PAPER BUY NO"}:
         if signal == "PAPER BUY YES":
-            if float(p_market) > float(max_entry_price_yes):
+            if float(p_market) < float(MIN_ENTRY_PRICE):
+                logger.info(
+                    "Entry filter BLOCKED YES trade: p_market=%.3f < min=%.3f",
+                    float(p_market),
+                    float(MIN_ENTRY_PRICE),
+                )
+                signal = "NO SIGNAL"
+                reason = (
+                    f"Entry blocked: YES at {float(p_market):.1%} below "
+                    f"minimum {float(MIN_ENTRY_PRICE):.1%} (contract too cheap)."
+                )
+                entry_filtered = True
+                region = "entry_filtered"
+            elif float(p_market) > float(max_entry_price_yes):
                 logger.info(
                     "Entry filter BLOCKED YES trade: p_market=%.3f > max=%.3f, upside only $%.3f/contract",
                     float(p_market),
@@ -305,7 +320,20 @@ def evaluate_signal(
                 region = "entry_filtered"
         elif signal == "PAPER BUY NO":
             no_price = 1.0 - float(p_market)
-            if no_price > float(max_entry_price_no):
+            if no_price < float(MIN_ENTRY_PRICE):
+                logger.info(
+                    "Entry filter BLOCKED NO trade: no_price=%.3f < min=%.3f",
+                    float(no_price),
+                    float(MIN_ENTRY_PRICE),
+                )
+                signal = "NO SIGNAL"
+                reason = (
+                    f"Entry blocked: NO at {no_price:.1%} below minimum "
+                    f"{float(MIN_ENTRY_PRICE):.1%} (contract too cheap)."
+                )
+                entry_filtered = True
+                region = "entry_filtered"
+            elif no_price > float(max_entry_price_no):
                 logger.info(
                     "Entry filter BLOCKED NO trade: no_price=%.3f > max=%.3f",
                     float(no_price),
@@ -444,23 +472,48 @@ def evaluate_mispricing_signal(
             confidence=float(confidence),
             p_market_source="unknown",
         )
-    if result.signal == "PAPER BUY YES" and float(p_market) > float(max_entry_price_yes):
-        logger.info(
-            "Entry filter BLOCKED YES trade: p_market=%.3f > max=%.3f, upside only $%.3f/contract",
-            float(p_market),
-            float(max_entry_price_yes),
-            (1 - float(p_market)),
-        )
-        result.signal = "NO SIGNAL"
-        result.reason = (
-            f"Entry filtered: {float(p_market):.1%} YES price exceeds "
-            f"{float(max_entry_price_yes):.1%} max. "
-            f"Only ${(1 - float(p_market)):.3f} upside per contract."
-        )
-        result.entry_filtered = True
+    if result.signal == "PAPER BUY YES":
+        if float(p_market) < float(MIN_ENTRY_PRICE):
+            logger.info(
+                "Entry filter BLOCKED YES trade: p_market=%.3f < min=%.3f",
+                float(p_market),
+                float(MIN_ENTRY_PRICE),
+            )
+            result.signal = "NO SIGNAL"
+            result.reason = (
+                f"Entry filtered: {float(p_market):.1%} YES below "
+                f"{float(MIN_ENTRY_PRICE):.1%} minimum (extreme leverage)."
+            )
+            result.entry_filtered = True
+        elif float(p_market) > float(max_entry_price_yes):
+            logger.info(
+                "Entry filter BLOCKED YES trade: p_market=%.3f > max=%.3f, upside only $%.3f/contract",
+                float(p_market),
+                float(max_entry_price_yes),
+                (1 - float(p_market)),
+            )
+            result.signal = "NO SIGNAL"
+            result.reason = (
+                f"Entry filtered: {float(p_market):.1%} YES price exceeds "
+                f"{float(max_entry_price_yes):.1%} max. "
+                f"Only ${(1 - float(p_market)):.3f} upside per contract."
+            )
+            result.entry_filtered = True
     elif result.signal == "PAPER BUY NO":
         no_price = 1.0 - float(p_market)
-        if no_price > float(max_entry_price_no):
+        if no_price < float(MIN_ENTRY_PRICE):
+            logger.info(
+                "Entry filter BLOCKED NO trade: no_price=%.3f < min=%.3f",
+                float(no_price),
+                float(MIN_ENTRY_PRICE),
+            )
+            result.signal = "NO SIGNAL"
+            result.reason = (
+                f"Entry filtered: {no_price:.1%} NO below "
+                f"{float(MIN_ENTRY_PRICE):.1%} minimum (extreme leverage)."
+            )
+            result.entry_filtered = True
+        elif no_price > float(max_entry_price_no):
             logger.info(
                 "Entry filter BLOCKED NO trade: no_price=%.3f > max=%.3f",
                 float(no_price),
@@ -511,10 +564,25 @@ def evaluate_ensemble_signal(
     effective_cutoff = float(early_entry_cutoff) if (in_early and not in_normal) else float(yes_cutoff)
     agreement_yes = float(p_market) >= effective_cutoff and float(p_raw) >= effective_cutoff
     gap = float(p_raw) - float(p_market)
-    mispricing_bullish = gap >= float(mispricing_threshold)
-    mispricing_bearish = (-gap) >= float(mispricing_threshold)
-    yes_entry_ok = float(p_market) <= float(max_entry_yes)
-    no_entry_ok = (1.0 - float(p_market)) <= float(max_entry_no)
+    thresh = float(mispricing_threshold)
+    if (-gap) >= thresh and float(p_raw) >= 0.50:
+        logger.info(
+            "Bearish gap %.1f%% detected but model still bullish (%.1f%%). Skipping NO trade.",
+            (-gap) * 100.0,
+            float(p_raw) * 100.0,
+        )
+    if gap >= thresh and float(p_raw) < 0.50:
+        logger.info(
+            "Bullish gap %.1f%% detected but model still bearish (%.1f%% YES). Skipping YES mispricing-only trade.",
+            gap * 100.0,
+            float(p_raw) * 100.0,
+        )
+
+    mispricing_bullish = gap >= thresh and float(p_raw) >= 0.50
+    mispricing_bearish = (-gap) >= thresh and float(p_raw) < 0.50
+    yes_entry_ok = float(MIN_ENTRY_PRICE) <= float(p_market) <= float(max_entry_yes)
+    no_price_pm = 1.0 - float(p_market)
+    no_entry_ok = float(MIN_ENTRY_PRICE) <= no_price_pm <= float(max_entry_no)
     confidence = abs(float(p_market) - 0.5) + abs(float(p_raw) - 0.5)
 
     result: SignalResult
@@ -541,6 +609,18 @@ def evaluate_ensemble_signal(
     else:
         parts: list[str] = []
         if agreement_yes and not yes_entry_ok:
+            pm = float(p_market)
+            if pm < float(MIN_ENTRY_PRICE):
+                entry_msg = (
+                    f"Entry blocked: YES at {pm:.1%} below min {float(MIN_ENTRY_PRICE):.1%} "
+                    f"(contract too cheap — extreme leverage)."
+                )
+            else:
+                entry_msg = (
+                    f"Entry blocked: YES at {pm:.1%} > "
+                    f"max {float(max_entry_yes):.1%}. "
+                    f"At this price, {(1 - pm) * 100:.1f}¢ upside per contract."
+                )
             result = no_signal_result(
                 p_market,
                 p_raw,
@@ -549,11 +629,7 @@ def evaluate_ensemble_signal(
                 effective_cutoff,
                 1.0 - effective_cutoff,
                 "entry_filtered",
-                (
-                    f"Entry blocked: YES at {float(p_market):.1%} > "
-                    f"max {float(max_entry_yes):.1%}. "
-                    f"At this price, {(1 - float(p_market)) * 100:.1f}¢ upside per contract."
-                ),
+                entry_msg,
             )
             logger.info(
                 "evaluate_ensemble_signal result: signal=%s, region=%s, volatility_guard_active=%s, mispricing_bullish=%s, mispricing_bearish=%s, gap=%.4f",
@@ -572,11 +648,21 @@ def evaluate_ensemble_signal(
         if abs(gap) < float(mispricing_threshold):
             parts.append(f"Gap {abs(gap):.1%} < {float(mispricing_threshold):.1%} threshold")
         if not yes_entry_ok:
-            parts.append(f"Entry {float(p_market):.1%} > max {float(max_entry_yes):.1%}")
+            pm = float(p_market)
+            if pm < float(MIN_ENTRY_PRICE):
+                parts.append(
+                    f"YES entry {pm:.1%} < min {float(MIN_ENTRY_PRICE):.1%} (extreme leverage)"
+                )
+            elif pm > float(max_entry_yes):
+                parts.append(f"Entry {pm:.1%} > max {float(max_entry_yes):.1%}")
         if mispricing_bearish and not no_entry_ok:
-            parts.append(
-                f"NO entry {(1.0 - float(p_market)):.1%} > max {float(max_entry_no):.1%}"
-            )
+            np = no_price_pm
+            if np < float(MIN_ENTRY_PRICE):
+                parts.append(
+                    f"NO entry {np:.1%} < min {float(MIN_ENTRY_PRICE):.1%} (extreme leverage)"
+                )
+            elif np > float(max_entry_no):
+                parts.append(f"NO entry {np:.1%} > max {float(max_entry_no):.1%}")
         result = no_signal_result(
             p_market,
             p_raw,

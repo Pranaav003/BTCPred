@@ -10,8 +10,11 @@ from app.db_helpers import get_or_create_market
 from app.feature_engineering import get_live_snapshot
 from app.kalshi_client import get_active_market
 from app.models import AppSettings, Market, PaperTrade, Portfolio, Signal, TradeSnapshot, db
+from app.signal_engine import MIN_ENTRY_PRICE
 
 logger = logging.getLogger(__name__)
+
+MAX_CONTRACTS = 500
 
 
 def _utc_iso_z(value: datetime | None) -> str | None:
@@ -288,6 +291,38 @@ def execute_paper_trade(
     if entry_price <= 0:
         return {"error": "Invalid entry price for trade."}
 
+    if entry_price < MIN_ENTRY_PRICE:
+        return {
+            "error": f"Entry price {entry_price:.3f} below minimum {MIN_ENTRY_PRICE}",
+            "detail": "Contract too cheap — extreme leverage, skip this trade",
+        }
+
+    # Safety net for auto-trades: enforce max-entry caps at execution time
+    # using the latest price, not only signal-generation-time price.
+    if signal_triggered:
+        max_entry_yes = float(AppSettings.get("max_entry_price_yes", "0.85") or 0.85)
+        max_entry_no = float(AppSettings.get("max_entry_price_no", "0.85") or 0.85)
+        if normalized_side == "YES" and entry_price > max_entry_yes:
+            logger.info(
+                "Auto-trade blocked at execution: YES entry %.3f exceeds max %.3f",
+                entry_price,
+                max_entry_yes,
+            )
+            return {
+                "error": "Entry filtered at execution",
+                "detail": f"YES entry {entry_price:.1%} exceeds max {max_entry_yes:.1%}",
+            }
+        if normalized_side == "NO" and entry_price > max_entry_no:
+            logger.info(
+                "Auto-trade blocked at execution: NO entry %.3f exceeds max %.3f",
+                entry_price,
+                max_entry_no,
+            )
+            return {
+                "error": "Entry filtered at execution",
+                "detail": f"NO entry {entry_price:.1%} exceeds max {max_entry_no:.1%}",
+            }
+
     if dollar_amount is not None:
         base_size = float(dollar_amount or 0.0)
         if base_size <= 0:
@@ -323,7 +358,9 @@ def execute_paper_trade(
     if contracts_value <= 0:
         return {"error": "Contracts must be greater than zero."}
 
-    entry_cost = contracts_value * entry_price
+    contracts_value = min(float(contracts_value), float(MAX_CONTRACTS))
+    effective_size = contracts_value * entry_price
+    entry_cost = effective_size
 
     if float(portfolio.cash or 0.0) < entry_cost:
         return {"error": "Insufficient funds", "cash": float(portfolio.cash or 0.0), "required": entry_cost}

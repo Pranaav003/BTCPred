@@ -1,3 +1,6 @@
+/** Trade snapshot API responses keyed by trade id; one fetch per trade per page session. */
+const snapshotCache = {};
+
 const monitorState = {
     toastTimer: null,
     history: [],
@@ -469,15 +472,27 @@ function mOpenTradeSnapshotModal(data) {
     modal.style.display = "flex";
 }
 
+/**
+ * Fetches trade snapshot only when called (e.g. 📊 click). Not used on poll or initial page load.
+ * Caches by trade id so repeat opens do not hit the network.
+ */
 async function mFetchTradeSnapshot(tradeId) {
+    const key = tradeId != null ? String(tradeId) : "";
+    if (!key) return null;
+    if (Object.prototype.hasOwnProperty.call(snapshotCache, key)) {
+        return snapshotCache[key];
+    }
     try {
-        const res = await fetch(`/api/paper/trade/${tradeId}/snapshot`, { headers: { Accept: "application/json" } });
+        const res = await fetch(`/api/paper/trade/${key}/snapshot`, { headers: { Accept: "application/json" } });
+        let data = null;
         if (res.status === 404) {
             const err = await res.json().catch(() => ({}));
-            return { notFound: true, message: err.error || "no snapshot" };
+            data = { notFound: true, message: err.error || "no snapshot" };
+        } else if (res.ok) {
+            data = await res.json();
         }
-        if (!res.ok) return null;
-        return await res.json();
+        if (data != null) snapshotCache[key] = data;
+        return data;
     } catch (e) {
         console.error(e);
         return null;
