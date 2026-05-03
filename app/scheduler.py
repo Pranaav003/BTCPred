@@ -13,7 +13,7 @@ from app.db_helpers import export_training_data, get_or_create_market, save_sign
 from app.feature_engineering import get_live_snapshot
 from app.kalshi_client import get_active_market, get_btc_price, get_market_prices
 from app.models import AppSettings, PaperTrade
-from app.paper_trading import execute_paper_trade
+from app.paper_trading import execute_paper_trade, get_realized_pnl_today_utc
 from app.resolver import resolve_pending_markets
 from app.signal_engine import evaluate_live_signal, signal_to_dict
 from train_raw_model import RAW_FEATURES
@@ -30,33 +30,20 @@ _COOLDOWN_SECONDS = 60
 _cooldown_until_ts = 0.0
 
 
-def _utc_start_of_today() -> datetime:
-    now = datetime.now(timezone.utc)
-    return datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
-
-
-def _today_realized_pnl_net() -> float:
-    """Sum realized_pnl for trades resolved today (UTC calendar day)."""
-    start = _utc_start_of_today()
-    rows = PaperTrade.query.filter(PaperTrade.resolved.is_(True), PaperTrade.entry_at >= start).all()
-    return sum(float(t.realized_pnl or 0.0) for t in rows if t.realized_pnl is not None)
-
-
-def _enforce_daily_loss_limit_before_auto_trade() -> bool:
-    """Return True if auto-trading must stop (scheduler paused)."""
+def _auto_trade_allowed_by_daily_loss() -> bool:
+    """False when net realized PnL from exits today (UTC) is at or below -max_daily_loss."""
     max_daily_loss = float(AppSettings.get("max_daily_loss", "200.0") or 200.0)
     if max_daily_loss <= 0:
-        return False
-    today_pnl = _today_realized_pnl_net()
-    if today_pnl < -max_daily_loss:
+        return True
+    today_pnl = get_realized_pnl_today_utc()
+    if today_pnl <= -max_daily_loss:
         logger.warning(
-            "Daily loss limit reached: %.2f < -%.2f. Auto-trader paused (scheduler_running=false).",
+            "Daily loss limit reached: net realized today (UTC) %.2f <= -%.2f; skipping auto-trade.",
             today_pnl,
             max_daily_loss,
         )
-        AppSettings.set("scheduler_running", "false")
-        return True
-    return False
+        return False
+    return True
 
 _SNAPSHOT_FEATURE_KEYS = [
     "return_1m",
@@ -172,91 +159,90 @@ def poll_and_signal() -> None:
             auto_trade_enabled = AppSettings.get("auto_trade_enabled", "false") == "true"
             paper_trading_enabled = AppSettings.get("paper_trading_enabled", "false") == "true"
             if auto_trade_enabled and paper_trading_enabled and result.signal in ("PAPER BUY YES", "PAPER BUY NO"):
-                if _enforce_daily_loss_limit_before_auto_trade():
-                    return
-                if result.p_market <= 0 or result.p_market >= 1:
-                    logger.error("Invalid p_market=%s, skipping", result.p_market)
-                    return
-                if result.p_raw <= 0 or result.p_raw >= 1:
-                    logger.error("Invalid p_raw=%s, skipping", result.p_raw)
-                    return
-                side = "YES" if result.signal == "PAPER BUY YES" else "NO"
-                if PaperTrade.has_recent_auto_trade(str(snapshot["market_ticker"]), side, minutes=20):
-                    logger.debug(
-                        "Dedup: already placed %s auto-trade for %s in the last 20m, skipping",
-                        side,
-                        snapshot["market_ticker"],
-                    )
-                else:
-                    seconds_left = int(snapshot.get("seconds_to_close", 0) or 0)
-                    if seconds_left < MIN_SECONDS_FOR_AUTO_TRADE:
-                        logger.info(
-                            "Auto-trade skipped: only %ss to close, minimum is %ss",
-                            seconds_left,
-                            MIN_SECONDS_FOR_AUTO_TRADE,
+                if _auto_trade_allowed_by_daily_loss():
+                    if result.p_market <= 0 or result.p_market >= 1:
+                        logger.error("Invalid p_market=%s, skipping", result.p_market)
+                        return
+                    if result.p_raw <= 0 or result.p_raw >= 1:
+                        logger.error("Invalid p_raw=%s, skipping", result.p_raw)
+                        return
+                    side = "YES" if result.signal == "PAPER BUY YES" else "NO"
+                    if PaperTrade.has_recent_auto_trade(str(snapshot["market_ticker"]), side, minutes=20):
+                        logger.debug(
+                            "Dedup: already placed %s auto-trade for %s in the last 20m, skipping",
+                            side,
+                            snapshot["market_ticker"],
                         )
                     else:
-                        dynamic_sizing = AppSettings.get("dynamic_sizing_enabled", "false") == "true"
-                        dollar_amount = float(AppSettings.get("paper_trade_size", "10.0"))
-                        mode_str = (AppSettings.get("signal_mode", "agreement") or "agreement").lower()
-                        mispricing_gap = (
-                            abs(float(result.p_raw) - float(result.p_market))
-                            if mode_str == "mispricing"
-                            else 0.0
-                        )
-
-                        entry_price = float(result.p_market or 0.0) if side == "YES" else (1.0 - float(result.p_market or 0.0))
-                        contracts = (dollar_amount / entry_price) if entry_price > 0 else 0.0
-                        if contracts > 0:
-                            open_position = PaperTrade.query.filter(
-                                PaperTrade.ticker == str(snapshot["market_ticker"]),
-                                PaperTrade.resolved.is_(False),
-                            ).first()
-                            if open_position:
-                                logger.info(
-                                    "Auto-trade skipped: open %s position already exists on %s",
-                                    open_position.side,
-                                    snapshot["market_ticker"],
-                                )
-                            else:
-                                price_ctx = _price_context_for_snapshot()
-                                snapshot_data = {
-                                    "market_title": snapshot.get("market_title", "") or "",
-                                    "seconds_to_close": int(snapshot.get("seconds_to_close", 0) or 0),
-                                    "entry_bucket": int(snapshot.get("entry_bucket", 0) or 0),
-                                    "p_market": float(snapshot.get("p_market", 0) or 0),
-                                    "p_raw": float(snapshot.get("p_raw", 0) or 0),
-                                    "signal_mode": AppSettings.get("signal_mode", "agreement") or "agreement",
-                                    "agreement_region": result.agreement_region,
-                                    "reason": result.reason,
-                                    "confidence": float(result.confidence or 0),
-                                    "reversal_risk": float(snapshot.get("reversal_risk", 0) or 0),
-                                    "raw_features": {k: snapshot.get(k) for k in _SNAPSHOT_FEATURE_KEYS},
-                                    **price_ctx,
-                                }
-                                trade_result = execute_paper_trade(
-                                    side=side,
-                                    contracts=contracts,
-                                    dollar_amount=dollar_amount,
-                                    use_dynamic_sizing=dynamic_sizing,
-                                    ticker=str(snapshot["market_ticker"]),
-                                    signal_id=saved_signal.id,
-                                    signal_triggered=True,
-                                    seconds_to_close=result.seconds_to_close,
-                                    snapshot_data=snapshot_data,
-                                    mispricing_gap=mispricing_gap,
-                                    signal_mode=mode_str,
-                                    volatility_override=("volatility override" in str(result.reason).lower()),
-                                )
-                                logger.info(
-                                    "Auto-trade executed: %s %.2f contracts on %s | result=%s",
-                                    side,
-                                    contracts,
-                                    snapshot["market_ticker"],
-                                    trade_result,
-                                )
+                        seconds_left = int(snapshot.get("seconds_to_close", 0) or 0)
+                        if seconds_left < MIN_SECONDS_FOR_AUTO_TRADE:
+                            logger.info(
+                                "Auto-trade skipped: only %ss to close, minimum is %ss",
+                                seconds_left,
+                                MIN_SECONDS_FOR_AUTO_TRADE,
+                            )
                         else:
-                            logger.warning("Skipped auto-trade because entry price is invalid for side %s", side)
+                            dynamic_sizing = AppSettings.get("dynamic_sizing_enabled", "false") == "true"
+                            dollar_amount = float(AppSettings.get("paper_trade_size", "10.0"))
+                            mode_str = (AppSettings.get("signal_mode", "agreement") or "agreement").lower()
+                            mispricing_gap = (
+                                abs(float(result.p_raw) - float(result.p_market))
+                                if mode_str == "mispricing"
+                                else 0.0
+                            )
+
+                            entry_price = float(result.p_market or 0.0) if side == "YES" else (1.0 - float(result.p_market or 0.0))
+                            contracts = (dollar_amount / entry_price) if entry_price > 0 else 0.0
+                            if contracts > 0:
+                                open_position = PaperTrade.query.filter(
+                                    PaperTrade.ticker == str(snapshot["market_ticker"]),
+                                    PaperTrade.resolved.is_(False),
+                                ).first()
+                                if open_position:
+                                    logger.info(
+                                        "Auto-trade skipped: open %s position already exists on %s",
+                                        open_position.side,
+                                        snapshot["market_ticker"],
+                                    )
+                                else:
+                                    price_ctx = _price_context_for_snapshot()
+                                    snapshot_data = {
+                                        "market_title": snapshot.get("market_title", "") or "",
+                                        "seconds_to_close": int(snapshot.get("seconds_to_close", 0) or 0),
+                                        "entry_bucket": int(snapshot.get("entry_bucket", 0) or 0),
+                                        "p_market": float(snapshot.get("p_market", 0) or 0),
+                                        "p_raw": float(snapshot.get("p_raw", 0) or 0),
+                                        "signal_mode": AppSettings.get("signal_mode", "agreement") or "agreement",
+                                        "agreement_region": result.agreement_region,
+                                        "reason": result.reason,
+                                        "confidence": float(result.confidence or 0),
+                                        "reversal_risk": float(snapshot.get("reversal_risk", 0) or 0),
+                                        "raw_features": {k: snapshot.get(k) for k in _SNAPSHOT_FEATURE_KEYS},
+                                        **price_ctx,
+                                    }
+                                    trade_result = execute_paper_trade(
+                                        side=side,
+                                        contracts=contracts,
+                                        dollar_amount=dollar_amount,
+                                        use_dynamic_sizing=dynamic_sizing,
+                                        ticker=str(snapshot["market_ticker"]),
+                                        signal_id=saved_signal.id,
+                                        signal_triggered=True,
+                                        seconds_to_close=result.seconds_to_close,
+                                        snapshot_data=snapshot_data,
+                                        mispricing_gap=mispricing_gap,
+                                        signal_mode=mode_str,
+                                        volatility_override=("volatility override" in str(result.reason).lower()),
+                                    )
+                                    logger.info(
+                                        "Auto-trade executed: %s %.2f contracts on %s | result=%s",
+                                        side,
+                                        contracts,
+                                        snapshot["market_ticker"],
+                                        trade_result,
+                                    )
+                            else:
+                                logger.warning("Skipped auto-trade because entry price is invalid for side %s", side)
 
             logger.info(
                 "Signal: %s | p_market=%.3f | p_raw=%.3f | %s",

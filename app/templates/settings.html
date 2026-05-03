@@ -166,7 +166,7 @@
             <div class="settings-field">
                 <label for="max-daily-loss-input">Max Daily Loss: $<span class="mono" id="max-daily-loss-label">{{ settings.max_daily_loss | int }}</span></label>
                 <input id="max-daily-loss-input" type="number" min="1" step="1" value="{{ settings.max_daily_loss | int }}">
-                <p class="text-muted">Auto-trader stops for the day if today’s realized P&amp;L falls below −this amount (scheduler paused; restart from Settings).</p>
+                <p class="text-muted">Blocks new paper trades when <strong>net realized P&amp;L</strong> from trades that <strong>close today (UTC)</strong> is at or below −this amount. Signals keep running; set to 0 to disable.</p>
             </div>
         </div>
     </article>

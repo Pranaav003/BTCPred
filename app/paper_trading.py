@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import func
 
 from app.db_helpers import get_or_create_market
 from app.feature_engineering import get_live_snapshot
@@ -15,6 +17,28 @@ from app.signal_engine import MIN_ENTRY_PRICE
 logger = logging.getLogger(__name__)
 
 MAX_CONTRACTS = 500
+
+
+def _utc_start_of_today() -> datetime:
+    now = datetime.now(timezone.utc)
+    return datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+
+
+def get_realized_pnl_today_utc() -> float:
+    """Sum realized_pnl for trades that closed today (UTC calendar day, by exit_at)."""
+    start = _utc_start_of_today()
+    end = start + timedelta(days=1)
+    total = (
+        db.session.query(func.coalesce(func.sum(PaperTrade.realized_pnl), 0.0))
+        .filter(
+            PaperTrade.resolved.is_(True),
+            PaperTrade.exit_at.isnot(None),
+            PaperTrade.exit_at >= start,
+            PaperTrade.exit_at < end,
+        )
+        .scalar()
+    )
+    return float(total or 0.0)
 
 
 def _utc_iso_z(value: datetime | None) -> str | None:
@@ -227,6 +251,25 @@ def execute_paper_trade(
     if normalized_side not in {"YES", "NO"}:
         return {"error": "Invalid side. Must be YES or NO."}
 
+    max_daily_loss = float(AppSettings.get("max_daily_loss", "200.0") or 200.0)
+    if max_daily_loss > 0:
+        today_realized = get_realized_pnl_today_utc()
+        if today_realized <= -max_daily_loss:
+            logger.info(
+                "Trade blocked: daily loss limit net_today=%.2f limit=%.2f",
+                today_realized,
+                max_daily_loss,
+            )
+            return {
+                "error": "Daily loss limit reached",
+                "detail": (
+                    f"Net realized PnL today (UTC) is ${today_realized:.2f}; "
+                    f"limit is -${max_daily_loss:.2f}. No new trades until the next UTC day."
+                ),
+                "today_realized_pnl_utc": today_realized,
+                "max_daily_loss": max_daily_loss,
+            }
+
     if seconds_to_close is not None and int(seconds_to_close) < 60:
         return {
             "error": "Too close to expiry",
@@ -435,6 +478,10 @@ def get_portfolio_summary():
     base = float(portfolio.starting_balance or 0.0)
     total_return_pct = ((cash_value - base) / base * 100.0) if base else 0.0
 
+    max_daily = float(AppSettings.get("max_daily_loss", "200.0") or 200.0)
+    today_net = get_realized_pnl_today_utc() if max_daily > 0 else 0.0
+    loss_blocked = bool(max_daily > 0 and today_net <= -max_daily)
+
     return {
         "cash": cash_value,
         "starting_balance": float(portfolio.starting_balance or 0.0),
@@ -445,6 +492,9 @@ def get_portfolio_summary():
         "open_trades": open_query.count(),
         "total_trades": PaperTrade.query.count(),
         "win_rate": win_rate,
+        "today_realized_pnl_utc": today_net,
+        "max_daily_loss": max_daily,
+        "daily_loss_limit_reached": loss_blocked,
     }
 
 
