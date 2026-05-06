@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import concurrent.futures
+import logging
 import time
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 
@@ -109,8 +112,22 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
         candle_future = ex.submit(get_candles, str(ticker), int(close_ts))
         trade_future = ex.submit(get_trades, str(ticker), snapshot_ts - 600, snapshot_ts)
-        candles = candle_future.result(timeout=15)
-        trades = trade_future.result(timeout=15)
+        try:
+            candles = candle_future.result(timeout=15)
+        except TimeoutError:
+            logger.warning("Candle fetch timed out after 15s — skipping poll")
+            return None
+        except Exception as exc:
+            logger.error("Candle fetch failed: %s", exc)
+            return None
+        try:
+            trades = trade_future.result(timeout=15)
+        except TimeoutError:
+            logger.warning("Trade fetch timed out after 15s — skipping poll")
+            return None
+        except Exception as exc:
+            logger.error("Trade fetch failed: %s", exc)
+            return None
 
     if candles is None or candles.empty:
         return None

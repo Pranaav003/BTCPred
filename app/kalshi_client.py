@@ -42,9 +42,11 @@ _MAX_TRADE_CACHE_ENTRIES = 20
 # See .env.example for KALSHI_API_KEY and KALSHI_API_SECRET.
 
 
-def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 3) -> dict | None:
+def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -> dict | None:
     """GET JSON helper with throttling/retries; returns None on failure."""
     global _last_request_time
+    # Two attempts max; backoff after 429 totals 5s + 15s = 20s (plus request time), under a 30s poll interval.
+    backoff_429 = (5, 15)
     for attempt in range(max_retries):
         try:
             # Global request pacing to reduce 429s under concurrent polling.
@@ -57,7 +59,7 @@ def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 3) -
 
             response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
             if response.status_code == 429:
-                wait = (2**attempt) * 5
+                wait = backoff_429[attempt]
                 logger.warning(
                     "Rate limited by Kalshi (attempt %s/%s). Waiting %ss before retry.",
                     attempt + 1,
@@ -76,7 +78,7 @@ def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 3) -
         except requests.exceptions.HTTPError as exc:
             status_code = exc.response.status_code if exc.response is not None else None
             if status_code == 429 and attempt < max_retries - 1:
-                wait = (2**attempt) * 5
+                wait = backoff_429[attempt]
                 logger.warning("Kalshi HTTP 429 retry in %ss for %s", wait, url)
                 time.sleep(wait)
                 continue

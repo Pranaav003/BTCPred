@@ -468,7 +468,7 @@ async function savePartialSettings(payload) {
 async function saveSettings() {
     const payload = {
         risk_profile: settingsState.activeRiskProfile,
-        poll_interval_seconds: Number(document.getElementById("poll-interval-input")?.value || 15),
+        poll_interval_seconds: Number(document.getElementById("poll-interval-input")?.value || 30),
         enable_no_signals: settingsState.enableNoSignals,
         paper_trade_size: Number(settingsState.settings.paper_trade_size || 5.0),
         signal_mode: settingsState.signalMode,

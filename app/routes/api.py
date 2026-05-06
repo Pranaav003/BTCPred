@@ -287,7 +287,7 @@ def scheduler_stop():
 @api_bp.route("/scheduler/status", methods=["GET"])
 def scheduler_status():
     running = AppSettings.get("scheduler_running", "false") == "true"
-    poll_interval = int(AppSettings.get("poll_interval_seconds", "8"))
+    poll_interval = int(AppSettings.get("poll_interval_seconds", "30"))
     auto_trade_enabled = AppSettings.get("auto_trade_enabled", "false") == "true"
     return jsonify(
         {

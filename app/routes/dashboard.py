@@ -16,7 +16,7 @@ def _typed_settings() -> dict:
         "no_cutoff": float(AppSettings.get("no_cutoff", "0.35")),
         "min_seconds_to_close": int(AppSettings.get("min_seconds_to_close", "30")),
         "max_seconds_to_close": int(AppSettings.get("max_seconds_to_close", "180")),
-        "poll_interval_seconds": int(AppSettings.get("poll_interval_seconds", "15")),
+        "poll_interval_seconds": int(AppSettings.get("poll_interval_seconds", "30")),
         "enable_no_signals": AppSettings.get("enable_no_signals", "false") == "true",
         "auto_trade_enabled": AppSettings.get("auto_trade_enabled", "false") == "true",
         "paper_trade_size": float(AppSettings.get("paper_trade_size", "10.0")),
@@ -42,7 +42,7 @@ def home():
 @dashboard_bp.route("/dashboard")
 def dashboard():
     scheduler_running = AppSettings.get("scheduler_running", "false") == "true"
-    poll_interval = int(AppSettings.get("poll_interval_seconds", "15"))
+    poll_interval = int(AppSettings.get("poll_interval_seconds", "30"))
 
     try:
         get_model()

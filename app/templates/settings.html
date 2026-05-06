@@ -205,7 +205,7 @@
                     <span class="help-tooltip-popover">
                         Poll interval controls how often the app checks Kalshi for new market data and evaluates signals.
                         <br><br>
-                        15s (recommended): Checks 4x/minute. Fast enough to catch signals within the default 60-300s window.
+                        30s (recommended): Spaced enough that a slow poll (~35s) does not overlap the next tick; APScheduler coalesces missed runs.
                         <br><br>
                         Lower values: More responsive, more API calls.
                         Higher values: Less load, small risk of missing a brief mispricing window.

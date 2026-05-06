@@ -310,7 +310,7 @@ def init_scheduler(app):
         return _SCHEDULER_INSTANCE
 
     with app.app_context():
-        interval = int(AppSettings.get("poll_interval_seconds", "8"))
+        interval = int(AppSettings.get("poll_interval_seconds", "30"))
 
     scheduler_instance = BackgroundScheduler(timezone="UTC")
     scheduler_instance.add_job(
@@ -320,6 +320,8 @@ def init_scheduler(app):
         id="poll_signal",
         replace_existing=True,
         misfire_grace_time=10,
+        coalesce=True,
+        max_instances=1,
     )
     scheduler_instance.add_job(
         resolve_job,
