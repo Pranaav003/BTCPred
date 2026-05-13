@@ -682,49 +682,6 @@ function setupMispricingModeButton() {
     });
 }
 
-function _parseContentDispositionFilename(cd, fallback) {
-    if (!cd || typeof cd !== "string") return fallback;
-    const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-    if (utf8) {
-        try {
-            return decodeURIComponent(utf8[1].trim());
-        } catch (_) {
-            return utf8[1].trim();
-        }
-    }
-    const quoted = /filename\s*=\s*"([^"]+)"/i.exec(cd);
-    if (quoted) return quoted[1].trim();
-    const plain = /filename\s*=\s*([^;\s]+)/i.exec(cd);
-    if (plain) return plain[1].replace(/^["']|["']$/g, "").trim() || fallback;
-    return fallback;
-}
-
-async function downloadExportFile(url, defaultFilename) {
-    const res = await fetch(url, { credentials: "same-origin", headers: { Accept: "*/*" } });
-    if (!res.ok) {
-        let msg = `Download failed (${res.status})`;
-        const ct = res.headers.get("Content-Type") || "";
-        if (ct.includes("application/json")) {
-            try {
-                const j = await res.json();
-                if (j.error) msg = j.error;
-            } catch (_) { /* ignore */ }
-        }
-        throw new Error(msg);
-    }
-    const blob = await res.blob();
-    const name = _parseContentDispositionFilename(res.headers.get("Content-Disposition"), defaultFilename);
-    const href = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = href;
-    a.download = name;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(href);
-}
-
 function setupExportDropdown() {
     const wrap = document.getElementById("analytics-export-dropdown");
     const btn = document.getElementById("analytics-export-btn");
@@ -735,36 +692,54 @@ function setupExportDropdown() {
         event.stopPropagation();
         menu.classList.toggle("hidden");
     });
-    document.getElementById("export-full-json-btn")?.addEventListener("click", async () => {
+    document.getElementById("export-full-json-btn")?.addEventListener("click", () => {
+        window.location.href = "/api/export/full";
         closeMenu();
-        try {
-            await downloadExportFile("/api/export/full", "export-full.json");
-        } catch (e) {
-            alert(e.message || String(e));
-        }
     });
-    document.getElementById("export-csv-zip-btn")?.addEventListener("click", async () => {
+    document.getElementById("export-csv-zip-btn")?.addEventListener("click", () => {
+        window.location.href = "/api/export/csv";
         closeMenu();
-        try {
-            await downloadExportFile("/api/export/csv", "export.zip");
-        } catch (e) {
-            alert(e.message || String(e));
-        }
     });
-    document.getElementById("export-training-csv-btn")?.addEventListener("click", async () => {
+    document.getElementById("export-training-csv-btn")?.addEventListener("click", () => {
+        window.location.href = "/api/export/training-csv";
         closeMenu();
-        try {
-            await downloadExportFile("/api/export/training-csv", "training-export.zip");
-        } catch (e) {
-            alert(e.message || String(e));
-        }
     });
     document.getElementById("export-live-training-csv-btn")?.addEventListener("click", async () => {
         closeMenu();
+        const el = document.getElementById("export-live-training-csv-btn");
+        if (el) el.disabled = true;
         try {
-            await downloadExportFile("/api/export/live-training-data", "live_training_data.csv");
+            const res = await fetch("/api/export/live-training-data", {
+                credentials: "same-origin",
+                headers: { Accept: "text/csv" },
+            });
+            if (!res.ok) {
+                console.error("Live training export failed", res.status);
+                window.alert("Live training export failed. Try again or use the Monitor page export.");
+                return;
+            }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            const cd = res.headers.get("Content-Disposition") || "";
+            const m = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i.exec(cd);
+            let name = "live_training_data.csv";
+            if (m && m[1]) {
+                name = m[1].replace(/['"]/g, "").trim();
+                if (name.startsWith("UTF-8''")) name = decodeURIComponent(name.slice(7));
+            }
+            a.download = name || "live_training_data.csv";
+            a.rel = "noopener";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
         } catch (e) {
-            alert(e.message || String(e));
+            console.error(e);
+            window.alert("Download failed. Check your connection.");
+        } finally {
+            if (el) el.disabled = false;
         }
     });
     document.addEventListener("click", (event) => {

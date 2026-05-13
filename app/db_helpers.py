@@ -8,6 +8,7 @@ import csv
 from datetime import datetime, timezone
 
 from sqlalchemy import func
+from sqlalchemy.orm import contains_eager
 
 from app.models import AppSettings, Market, PaperTrade, Portfolio, Signal, db
 
@@ -286,6 +287,9 @@ def export_training_data(output_path: str = "live_training_data.csv") -> tuple[i
     """
     Export resolved signal rows into training-ready CSV.
 
+    Streams one row at a time to ``output_path`` (no giant in-memory list)
+    so large exports do not exhaust RAM on small workers.
+
     Returns:
       (rows_written, rows_skipped)
     """
@@ -307,48 +311,44 @@ def export_training_data(output_path: str = "live_training_data.csv") -> tuple[i
         + ["logged_at", "market_ticker", "close_ts", "p_raw", "agreement_region", "signal", "source"]
     )
 
-    signals = (
-        Signal.query.filter(
+    query = (
+        Signal.query.join(Signal.market)
+        .filter(
             Signal.resolved.is_(True),
-            Signal.raw_features_json.is_not(None),
+            Signal.raw_features_json.isnot(None),
+            Market.final_outcome_yes.isnot(None),
         )
+        .options(contains_eager(Signal.market))
         .order_by(Signal.logged_at.asc())
-        .all()
     )
 
-    rows: list[dict] = []
+    rows_written = 0
     skipped = 0
-
-    for s in signals:
-        try:
-            features = json.loads(s.raw_features_json or "{}")
-        except Exception:
-            skipped += 1
-            continue
-
-        market = Market.query.get(s.market_id)
-        if market is None or market.final_outcome_yes is None:
-            skipped += 1
-            continue
-
-        row = {feature: features.get(feature, 0.0) for feature in raw_features}
-        row["price_now"] = s.p_market
-        row["final_outcome_yes"] = int(market.final_outcome_yes)
-        row["logged_at"] = _utc_iso_z(s.logged_at)
-        row["market_ticker"] = market.ticker
-        row["close_ts"] = int(market.close_time.timestamp()) if market.close_time is not None else None
-        row["p_raw"] = s.p_raw
-        row["agreement_region"] = s.agreement_region
-        row["signal"] = s.signal
-        row["source"] = "live"
-        rows.append(row)
-
-    if not rows:
-        return 0, skipped
 
     with open(output_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(rows)
+        for s in query.yield_per(250):
+            try:
+                features = json.loads(s.raw_features_json or "{}")
+            except Exception:
+                skipped += 1
+                continue
+            market = s.market
+            if market is None or market.final_outcome_yes is None:
+                skipped += 1
+                continue
+            row = {feature: features.get(feature, 0.0) for feature in raw_features}
+            row["price_now"] = s.p_market
+            row["final_outcome_yes"] = int(market.final_outcome_yes)
+            row["logged_at"] = _utc_iso_z(s.logged_at)
+            row["market_ticker"] = market.ticker
+            row["close_ts"] = int(market.close_time.timestamp()) if market.close_time is not None else None
+            row["p_raw"] = s.p_raw
+            row["agreement_region"] = s.agreement_region
+            row["signal"] = s.signal
+            row["source"] = "live"
+            writer.writerow(row)
+            rows_written += 1
 
-    return len(rows), skipped
+    return rows_written, skipped

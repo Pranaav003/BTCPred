@@ -1,51 +1,6 @@
 /** Trade snapshot API responses keyed by trade id; one fetch per trade per page session. */
 const snapshotCache = {};
 
-/** Parse filename from Content-Disposition (RFC 5987 filename* or filename=). */
-function mParseContentDispositionFilename(cd, fallback) {
-    if (!cd || typeof cd !== "string") return fallback;
-    const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(cd);
-    if (utf8) {
-        try {
-            return decodeURIComponent(utf8[1].trim());
-        } catch (_) {
-            return utf8[1].trim();
-        }
-    }
-    const quoted = /filename\s*=\s*"([^"]+)"/i.exec(cd);
-    if (quoted) return quoted[1].trim();
-    const plain = /filename\s*=\s*([^;\s]+)/i.exec(cd);
-    if (plain) return plain[1].replace(/^["']|["']$/g, "").trim() || fallback;
-    return fallback;
-}
-
-/** GET binary export and trigger browser download (avoids full-page navigation that often skips Downloads). */
-async function mDownloadExportBlob(url, defaultFilename) {
-    const res = await fetch(url, { credentials: "same-origin", headers: { Accept: "*/*" } });
-    if (!res.ok) {
-        let msg = `Download failed (${res.status})`;
-        const ct = res.headers.get("Content-Type") || "";
-        if (ct.includes("application/json")) {
-            try {
-                const j = await res.json();
-                if (j.error) msg = j.error;
-            } catch (_) { /* ignore */ }
-        }
-        throw new Error(msg);
-    }
-    const blob = await res.blob();
-    const name = mParseContentDispositionFilename(res.headers.get("Content-Disposition"), defaultFilename);
-    const href = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = href;
-    a.download = name;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(href);
-}
-
 const monitorState = {
     toastTimer: null,
     history: [],
@@ -728,11 +683,42 @@ function mWireDataCollectionExport() {
     btn.addEventListener("click", async () => {
         btn.disabled = true;
         try {
-            await mDownloadExportBlob("/api/export/live-training-data", "live_training_data.csv");
-            mShowToast("Saved CSV to your Downloads folder. Run: python merge_and_retrain.py", "success");
+            const res = await fetch("/api/export/live-training-data", {
+                credentials: "same-origin",
+                headers: { Accept: "text/csv" },
+            });
+            if (!res.ok) {
+                let msg = `Download failed (${res.status})`;
+                try {
+                    const err = await res.json();
+                    if (err && err.error) msg = err.error;
+                } catch {
+                    /* ignore */
+                }
+                mShowToast(msg, "error");
+                return;
+            }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            const cd = res.headers.get("Content-Disposition") || "";
+            const m = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i.exec(cd);
+            let name = "live_training_data.csv";
+            if (m && m[1]) {
+                name = m[1].replace(/['"]/g, "").trim();
+                if (name.startsWith("UTF-8''")) name = decodeURIComponent(name.slice(7));
+            }
+            a.download = name || "live_training_data.csv";
+            a.rel = "noopener";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            mShowToast("Saved CSV to your downloads folder. Run: python merge_and_retrain.py", "success");
         } catch (e) {
             console.error(e);
-            mShowToast(e.message || "Download failed", "error");
+            mShowToast("Download failed — check connection or try again.", "error");
         } finally {
             btn.disabled = false;
         }
