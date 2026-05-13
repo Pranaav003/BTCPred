@@ -1,4 +1,6 @@
 .env
+# Local-only model backups (never commit experimental retrains here)
+local_model_backups/
 # *.pkl
 *.db
 __pycache__/
