@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import os
+import time
 import shutil
 import zipfile
 import tempfile
@@ -140,7 +141,8 @@ def _merged_training_row(row) -> dict[str, object]:
 
 @api_bp.route("/health")
 def health():
-    return jsonify({"status": "ok", "message": "service healthy"})
+    """Instant liveness for load balancers — no DB or model work."""
+    return jsonify({"status": "ok", "ts": time.time()}), 200
 
 
 @api_bp.route("/debug/market", methods=["GET"])

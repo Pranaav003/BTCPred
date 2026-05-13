@@ -309,14 +309,14 @@ def init_scheduler(app):
     if _SCHEDULER_INSTANCE is not None and _SCHEDULER_INSTANCE.running:
         return _SCHEDULER_INSTANCE
 
-    with app.app_context():
-        interval = int(AppSettings.get("poll_interval_seconds", "30"))
+    # Fixed 30s poll: keeps Kalshi retry headroom (~3s) under max_instances=1 without overlap.
+    poll_seconds = 30
 
     scheduler_instance = BackgroundScheduler(timezone="UTC")
     scheduler_instance.add_job(
         poll_and_signal,
         trigger="interval",
-        seconds=interval,
+        seconds=poll_seconds,
         id="poll_signal",
         replace_existing=True,
         misfire_grace_time=10,
@@ -340,7 +340,7 @@ def init_scheduler(app):
         misfire_grace_time=60,
     )
     scheduler_instance.start()
-    logger.info("Scheduler started, polling every %ss", interval)
+    logger.info("Scheduler started, polling every %ss", poll_seconds)
 
     def _warmup_cache() -> None:
         time.sleep(2)

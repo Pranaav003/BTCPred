@@ -6,6 +6,8 @@ import argparse
 import sys
 from datetime import datetime, timezone
 
+from pathlib import Path
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -38,12 +40,27 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--live-only", action="store_true", help="Train on live data only, ignore historical")
     parser.add_argument("--min-live-rows", type=int, default=100, help="Minimum live rows required to proceed")
-    parser.add_argument("--live-weight", type=float, default=3.0, help="How much to upweight recent live rows vs historical")
+    parser.add_argument("--live-weight", type=float, default=2.0, help="How much to upweight recent live rows vs historical")
+    parser.add_argument(
+        "--model-output",
+        type=str,
+        default=MODEL_OUTPUT,
+        help="Path for joblib bundle (default: raw_feature_model.pkl in cwd)",
+    )
+    parser.add_argument(
+        "--live-data",
+        type=str,
+        default=LIVE_PATH,
+        help="Path to live training CSV (default: live_training_data.csv)",
+    )
     args = parser.parse_args()
 
+    live_path = args.live_data
+    model_out = args.model_output
+
     try:
-        live_df = pd.read_csv(LIVE_PATH)
-        print(f"Live rows loaded: {len(live_df)}")
+        live_df = pd.read_csv(live_path)
+        print(f"Live rows loaded from {live_path}: {len(live_df)}")
     except FileNotFoundError:
         print("No live_training_data.csv found.")
         print("Export it first from the app: Analytics > Export > Download Live Training Data")
@@ -142,6 +159,9 @@ def main() -> None:
     for k, v in metrics.items():
         print(f"  {k}: {v:.4f}")
 
+    out_path = Path(model_out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
     joblib.dump(
         {
             "model": model,
@@ -157,10 +177,10 @@ def main() -> None:
             "historical_rows": len(df) - len(live_df),
             "live_weight": args.live_weight if weights is not None else 1.0,
         },
-        MODEL_OUTPUT,
+        model_out,
     )
 
-    print(f"\nSaved to {MODEL_OUTPUT}")
+    print(f"\nSaved to {model_out}")
     print("Restart Flask to load the new model.")
 
 

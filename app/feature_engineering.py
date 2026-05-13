@@ -113,17 +113,17 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
         candle_future = ex.submit(get_candles, str(ticker), int(close_ts))
         trade_future = ex.submit(get_trades, str(ticker), snapshot_ts - 600, snapshot_ts)
         try:
-            candles = candle_future.result(timeout=15)
+            candles = candle_future.result(timeout=8)
         except TimeoutError:
-            logger.warning("Candle fetch timed out after 15s — skipping poll")
+            logger.warning("Candle fetch timed out after 8s — skipping poll")
             return None
         except Exception as exc:
             logger.error("Candle fetch failed: %s", exc)
             return None
         try:
-            trades = trade_future.result(timeout=15)
+            trades = trade_future.result(timeout=8)
         except TimeoutError:
-            logger.warning("Trade fetch timed out after 15s — skipping poll")
+            logger.warning("Trade fetch timed out after 8s — skipping poll")
             return None
         except Exception as exc:
             logger.error("Trade fetch failed: %s", exc)

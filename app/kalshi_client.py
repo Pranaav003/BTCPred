@@ -14,6 +14,8 @@ import requests
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 SERIES = "KXBTC15M"
 REQUEST_TIMEOUT = 20
+# Shorter timeout for Kalshi trade-api GETs (429 retry uses at most ~3s sleep in _get).
+KALSHI_GET_TIMEOUT = 10
 PREFERRED_STRIKE = "-30"
 
 logger = logging.getLogger(__name__)
@@ -43,13 +45,14 @@ _MAX_TRADE_CACHE_ENTRIES = 20
 
 
 def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -> dict | None:
-    """GET JSON helper with throttling/retries; returns None on failure."""
+    """GET JSON helper: paced requests, one short 429 retry (3s), then give up.
+
+    Avoids long blocking sleeps (previously 5s+15s) that stacked with APScheduler
+    and starved workers under rate limits.
+    """
     global _last_request_time
-    # Two attempts max; backoff after 429 totals 5s + 15s = 20s (plus request time), under a 30s poll interval.
-    backoff_429 = (5, 15)
     for attempt in range(max_retries):
         try:
-            # Global request pacing to reduce 429s under concurrent polling.
             with _request_lock:
                 now = time.time()
                 elapsed = now - _last_request_time
@@ -57,17 +60,14 @@ def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -
                     time.sleep(_min_request_interval - elapsed)
                 _last_request_time = time.time()
 
-            response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
+            response = requests.get(url, params=params, timeout=KALSHI_GET_TIMEOUT)
             if response.status_code == 429:
-                wait = backoff_429[attempt]
-                logger.warning(
-                    "Rate limited by Kalshi (attempt %s/%s). Waiting %ss before retry.",
-                    attempt + 1,
-                    max_retries,
-                    wait,
-                )
-                time.sleep(wait)
-                continue
+                if attempt == 0:
+                    logger.warning("Rate limited by Kalshi — waiting 3s (attempt 1/2) url=%s", url)
+                    time.sleep(3)
+                    continue
+                logger.warning("Rate limited twice — skipping this cycle url=%s", url)
+                return None
 
             response.raise_for_status()
             payload = response.json()
@@ -75,20 +75,16 @@ def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -
                 logger.error("Kalshi API returned non-dict JSON for %s", url)
                 return None
             return payload
+        except requests.exceptions.Timeout:
+            logger.warning("Request timed out: %s", url)
+            return None
         except requests.exceptions.HTTPError as exc:
-            status_code = exc.response.status_code if exc.response is not None else None
-            if status_code == 429 and attempt < max_retries - 1:
-                wait = backoff_429[attempt]
-                logger.warning("Kalshi HTTP 429 retry in %ss for %s", wait, url)
-                time.sleep(wait)
-                continue
             logger.error("Kalshi GET failed url=%s params=%s error=%s", url, params, exc)
             return None
         except Exception as exc:
             logger.error("Kalshi GET failed url=%s params=%s error=%s", url, params, exc)
             return None
 
-    logger.error("Kalshi GET failed after %s retries: url=%s params=%s", max_retries, url, params)
     return None
 
 

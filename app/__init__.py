@@ -55,6 +55,10 @@ def create_app(config_name: str | None = None) -> Flask:
         AppSettings.set("scheduler_running", "true")
 
     app.scheduler_instance = None
+    app.register_blueprint(dashboard_bp)
+    app.register_blueprint(api_bp)
+
+    # Register routes (including /api/health) before background scheduler so probes work immediately.
     should_start_scheduler = (
         not app.testing
         and selected_config != "testing"
@@ -67,9 +71,6 @@ def create_app(config_name: str | None = None) -> Flask:
             app.scheduler_instance = init_scheduler(app)
         except Exception as exc:
             app.logger.error("Scheduler failed to start: %s", exc)
-
-    app.register_blueprint(dashboard_bp)
-    app.register_blueprint(api_bp)
 
     @app.cli.command("train-model")
     def train_model_command() -> None:
