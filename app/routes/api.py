@@ -726,15 +726,34 @@ def export_training_csv():
 @api_bp.route("/export/live-training-data", methods=["GET"])
 def export_live_training_data():
     now = datetime.now(UTC)
+    if request.args.get("stats", "").strip() == "1":
+        # Fast path: COUNT only — do not stream/export the full table (avoids timeout on large DBs).
+        total_candidates = (
+            db.session.query(func.count(Signal.id))
+            .filter(
+                Signal.resolved.is_(True),
+                Signal.raw_features_json.isnot(None),
+            )
+            .scalar()
+        )
+        total_candidates = int(total_candidates or 0)
+        rows_export = (
+            db.session.query(func.count(Signal.id))
+            .join(Market, Signal.market_id == Market.id)
+            .filter(
+                Signal.resolved.is_(True),
+                Signal.raw_features_json.isnot(None),
+                Market.final_outcome_yes.isnot(None),
+            )
+            .scalar()
+        )
+        rows_export = int(rows_export or 0)
+        skipped = max(0, total_candidates - rows_export)
+        return jsonify({"rows": rows_export, "skipped": skipped})
+
     with tempfile.NamedTemporaryFile(prefix="live_training_data_", suffix=".csv", delete=False) as tmp:
         tmp_path = tmp.name
     rows, skipped = export_training_data(tmp_path)
-    if request.args.get("stats", "").strip() == "1":
-        try:
-            Path(tmp_path).unlink(missing_ok=True)
-        except Exception:
-            pass
-        return jsonify({"rows": rows, "skipped": skipped})
     if rows == 0:
         try:
             Path(tmp_path).unlink(missing_ok=True)

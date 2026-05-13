@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, UTC
 
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import Index, text
 
 from app.extensions import db
 
@@ -71,6 +72,17 @@ class Signal(db.Model):
     """One market snapshot/poll and derived trading signal."""
 
     __tablename__ = "signals"
+
+    __table_args__ = (
+        Index("ix_signals_market_id", "market_id"),
+        Index(
+            "ix_signals_resolved_market_has_features",
+            "resolved",
+            "market_id",
+            postgresql_where=text("raw_features_json IS NOT NULL"),
+            sqlite_where=text("raw_features_json IS NOT NULL"),
+        ),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     market_id = db.Column(db.Integer, db.ForeignKey("markets.id"), nullable=False)
