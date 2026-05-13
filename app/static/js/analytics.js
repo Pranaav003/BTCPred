@@ -704,43 +704,21 @@ function setupExportDropdown() {
         window.location.href = "/api/export/training-csv";
         closeMenu();
     });
-    document.getElementById("export-live-training-csv-btn")?.addEventListener("click", async () => {
+    document.getElementById("export-live-training-csv-btn")?.addEventListener("click", () => {
         closeMenu();
         const el = document.getElementById("export-live-training-csv-btn");
         if (el) el.disabled = true;
-        try {
-            const res = await fetch("/api/export/live-training-data", {
-                credentials: "same-origin",
-                headers: { Accept: "text/csv" },
-            });
-            if (!res.ok) {
-                console.error("Live training export failed", res.status);
-                window.alert("Live training export failed. Try again or use the Monitor page export.");
-                return;
-            }
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            const cd = res.headers.get("Content-Disposition") || "";
-            const m = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i.exec(cd);
-            let name = "live_training_data.csv";
-            if (m && m[1]) {
-                name = m[1].replace(/['"]/g, "").trim();
-                if (name.startsWith("UTF-8''")) name = decodeURIComponent(name.slice(7));
-            }
-            a.download = name || "live_training_data.csv";
-            a.rel = "noopener";
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
-        } catch (e) {
-            console.error(e);
-            window.alert("Download failed. Check your connection.");
-        } finally {
+        // Avoid fetch+blob — large live CSV OOMs the tab; let the browser download directly.
+        const a = document.createElement("a");
+        a.href = "/api/export/live-training-data";
+        a.download = "live_training_data.csv";
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.setTimeout(() => {
             if (el) el.disabled = false;
-        }
+        }, 1500);
     });
     document.addEventListener("click", (event) => {
         if (!wrap.contains(event.target)) closeMenu();

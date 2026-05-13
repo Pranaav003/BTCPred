@@ -680,48 +680,21 @@ async function mFetchDataCollectionStatus() {
 function mWireDataCollectionExport() {
     const btn = document.getElementById("data-collection-export-btn");
     if (!btn) return;
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
+        // Do not fetch()+blob() — large CSVs (~70k+ rows) exhaust tab memory and crash.
+        // Same-origin <a download> lets the browser stream to disk without holding the body in JS.
         btn.disabled = true;
-        try {
-            const res = await fetch("/api/export/live-training-data", {
-                credentials: "same-origin",
-                headers: { Accept: "text/csv" },
-            });
-            if (!res.ok) {
-                let msg = `Download failed (${res.status})`;
-                try {
-                    const err = await res.json();
-                    if (err && err.error) msg = err.error;
-                } catch {
-                    /* ignore */
-                }
-                mShowToast(msg, "error");
-                return;
-            }
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            const cd = res.headers.get("Content-Disposition") || "";
-            const m = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i.exec(cd);
-            let name = "live_training_data.csv";
-            if (m && m[1]) {
-                name = m[1].replace(/['"]/g, "").trim();
-                if (name.startsWith("UTF-8''")) name = decodeURIComponent(name.slice(7));
-            }
-            a.download = name || "live_training_data.csv";
-            a.rel = "noopener";
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
-            mShowToast("Saved CSV to your downloads folder. Run: python merge_and_retrain.py", "success");
-        } catch (e) {
-            console.error(e);
-            mShowToast("Download failed — check connection or try again.", "error");
-        } finally {
+        const a = document.createElement("a");
+        a.href = "/api/export/live-training-data";
+        a.download = "live_training_data.csv";
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        mShowToast("Download started — check your Downloads folder. Then: python merge_and_retrain.py", "success");
+        window.setTimeout(() => {
             btn.disabled = false;
-        }
+        }, 1500);
     });
 }
 
