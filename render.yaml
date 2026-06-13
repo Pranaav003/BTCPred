@@ -17,6 +17,9 @@ services:
           property: connectionString
       - key: MODEL_PATH
         value: raw_feature_model.pkl
+      # Set in Render dashboard (do not commit secrets):
+      # KALSHI_API_KEY_ID — API key ID from kalshi.com/account/api
+      # KALSHI_PRIVATE_KEY — full RSA private key PEM (Render preserves newlines)
 
 databases:
   - name: kalshi-signal-db

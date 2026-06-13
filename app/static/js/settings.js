@@ -704,6 +704,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     updateMaxReversalRiskPreview();
     await initRiskProfileSettings();
     wireInputs();
+    wireLiveTradingSection();
+    await initLiveTradingSection();
     loadModelInfo();
     updateSchedulerStatus();
     document.getElementById("save-settings-btn")?.addEventListener("click", saveSettings);
@@ -711,3 +713,170 @@ window.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("stop-scheduler-btn")?.addEventListener("click", () => schedulerAction("stop"));
     window.setInterval(updateLastSavedLabel, 1000);
 });
+
+async function settingsApiFetch(url, options = {}) {
+    try {
+        const response = await fetch(url, { headers: { Accept: "application/json" }, ...options });
+        if (!response.ok) return null;
+        return await response.json();
+    } catch (_) {
+        return null;
+    }
+}
+
+function updateLiveBadge(enabled) {
+    const badge = document.getElementById("live-trading-badge");
+    const label = document.getElementById("live-trading-status-label");
+    if (enabled) {
+        if (badge) {
+            badge.textContent = "LIVE ACTIVE";
+            badge.className = "badge badge-danger";
+        }
+        if (label) {
+            label.textContent = "⚠ Live orders are being placed with real money";
+            label.className = "text-danger";
+        }
+    } else {
+        if (badge) {
+            badge.textContent = "DISABLED";
+            badge.className = "badge badge-neutral";
+        }
+        if (label) {
+            label.textContent = "Live orders disabled — safe mode";
+            label.className = "text-muted";
+        }
+    }
+}
+
+async function initLiveTradingSection() {
+    const balanceRes = await settingsApiFetch("/api/live/balance");
+    const apiStatus = document.getElementById("api-key-status");
+    const liveControls = document.getElementById("live-controls");
+    const notConfigured = document.getElementById("live-not-configured");
+    const liveBalance = document.getElementById("live-balance");
+
+    if (!balanceRes) {
+        if (apiStatus) {
+            apiStatus.textContent = "✗ Error";
+            apiStatus.className = "value text-danger";
+        }
+        return;
+    }
+
+    if (!balanceRes.configured) {
+        if (apiStatus) {
+            apiStatus.textContent = "✗ Not configured";
+            apiStatus.className = "value text-danger";
+        }
+        liveControls?.classList.add("hidden");
+        notConfigured?.classList.remove("hidden");
+    } else {
+        if (apiStatus) {
+            apiStatus.textContent = "✓ Configured";
+            apiStatus.className = "value text-success";
+        }
+        liveControls?.classList.remove("hidden");
+        notConfigured?.classList.add("hidden");
+        if (liveBalance) {
+            liveBalance.textContent = balanceRes.balance_dollars != null
+                ? `$${Number(balanceRes.balance_dollars).toFixed(2)}`
+                : "Error fetching";
+        }
+    }
+
+    const settings = await settingsApiFetch("/api/settings");
+    if (settings) {
+        const sizeEl = document.getElementById("live-trade-size");
+        const lossEl = document.getElementById("live-max-daily-loss");
+        if (sizeEl) sizeEl.value = settings.live_trade_size || "5";
+        if (lossEl) lossEl.value = settings.max_daily_loss || "50";
+        const toggle = document.getElementById("live-trading-toggle");
+        if (toggle) toggle.checked = settings.live_trading_enabled === "true";
+        updateLiveBadge(settings.live_trading_enabled === "true");
+    }
+}
+
+function wireLiveTradingSection() {
+    document.getElementById("test-api-btn")?.addEventListener("click", async () => {
+        const result = document.getElementById("test-api-result");
+        if (result) {
+            result.textContent = "Testing...";
+            result.className = "text-muted";
+        }
+        const res = await settingsApiFetch("/api/live/test-order", { method: "POST" });
+        if (res?.success) {
+            if (result) {
+                result.textContent = `✓ Keys valid — Balance: $${Number(res.balance_dollars).toFixed(2)}`;
+                result.className = "text-success";
+            }
+        } else if (result) {
+            result.textContent = `✗ ${res?.error || "Unknown error"}`;
+            result.className = "text-danger";
+        }
+    });
+
+    document.getElementById("refresh-balance-btn")?.addEventListener("click", async () => {
+        const res = await settingsApiFetch("/api/live/balance");
+        const el = document.getElementById("live-balance");
+        if (el && res?.balance_dollars != null) {
+            el.textContent = `$${Number(res.balance_dollars).toFixed(2)}`;
+        }
+    });
+
+    document.getElementById("live-trading-toggle")?.addEventListener("change", async (event) => {
+        const toggle = event.target;
+        if (toggle.checked) {
+            toggle.checked = false;
+            const tradeSize = document.getElementById("live-trade-size")?.value || "5";
+            const dailyLoss = document.getElementById("live-max-daily-loss")?.value || "50";
+            const balance = document.getElementById("live-balance")?.textContent || "—";
+            const modalSize = document.getElementById("modal-trade-size");
+            const modalLoss = document.getElementById("modal-daily-loss");
+            const modalBal = document.getElementById("modal-balance");
+            if (modalSize) modalSize.textContent = `$${tradeSize}`;
+            if (modalLoss) modalLoss.textContent = `$${dailyLoss}`;
+            if (modalBal) modalBal.textContent = balance;
+            const modal = document.getElementById("live-confirm-modal");
+            if (modal) modal.style.display = "flex";
+        } else {
+            try {
+                await savePartialSettings({ live_trading_enabled: "false" });
+                updateLiveBadge(false);
+                showSettingsToast("Live trading disabled", "success");
+            } catch (error) {
+                showSettingsToast(`Failed to disable live trading: ${error.message}`, "error");
+            }
+        }
+    });
+
+    document.getElementById("modal-cancel")?.addEventListener("click", () => {
+        const modal = document.getElementById("live-confirm-modal");
+        if (modal) modal.style.display = "none";
+    });
+
+    document.getElementById("modal-confirm")?.addEventListener("click", async () => {
+        const tradeSize = document.getElementById("live-trade-size")?.value || "5";
+        const dailyLoss = document.getElementById("live-max-daily-loss")?.value || "50";
+        try {
+            await savePartialSettings({
+                live_trade_size: tradeSize,
+                max_daily_loss: dailyLoss,
+                live_trading_enabled: "true",
+            });
+            const toggle = document.getElementById("live-trading-toggle");
+            if (toggle) toggle.checked = true;
+            const modal = document.getElementById("live-confirm-modal");
+            if (modal) modal.style.display = "none";
+            updateLiveBadge(true);
+            showSettingsToast("Live trading enabled", "success");
+        } catch (error) {
+            showSettingsToast(`Failed to enable live trading: ${error.message}`, "error");
+        }
+    });
+
+    document.getElementById("live-confirm-modal")?.addEventListener("click", (event) => {
+        if (event.target?.id === "live-confirm-modal") {
+            event.target.style.display = "none";
+        }
+    });
+}

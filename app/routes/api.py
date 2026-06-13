@@ -20,7 +20,8 @@ from app.db_helpers import export_training_data, get_probability_history, get_re
 from app.feature_engineering import get_live_snapshot
 from app.kalshi_client import get_active_market, get_btc_price, get_market_prices
 from app.model_loader import get_model
-from app.models import AppSettings, Market, PaperTrade, Signal, TradeSnapshot, db
+from app.kalshi_auth import is_configured
+from app.models import AppSettings, LiveTrade, Market, PaperTrade, Signal, TradeSnapshot, db
 from app.paper_trading import (
     execute_paper_trade,
     get_open_positions,
@@ -824,6 +825,8 @@ def update_settings():
         "max_reversal_risk",
         "max_daily_loss",
         "high_conviction_volatility_override",
+        "live_trading_enabled",
+        "live_trade_size",
     }
 
     updated = []
@@ -833,6 +836,7 @@ def update_settings():
         "auto_trade_enabled",
         "paper_trading_enabled",
         "dynamic_sizing_enabled",
+        "live_trading_enabled",
     }
     for key, value in payload.items():
         if key not in allowed_keys:
@@ -887,6 +891,14 @@ def update_settings():
                 continue
             max_loss = max(1.0, min(1_000_000.0, max_loss))
             AppSettings.set(key, f"{max_loss:.2f}")
+        elif key == "live_trade_size":
+            try:
+                live_size = float(value)
+            except (TypeError, ValueError):
+                errors.append("live_trade_size must be numeric")
+                continue
+            live_size = max(1.0, min(500.0, live_size))
+            AppSettings.set(key, f"{live_size:.2f}")
         elif key == "high_conviction_volatility_override":
             try:
                 override_cutoff = float(value)
@@ -1027,6 +1039,118 @@ def live_snapshot():
         "signal_window_max_seconds": int(profile.get("max_seconds", 180)),
     }
     return jsonify(merged)
+
+
+@api_bp.route("/live/balance", methods=["GET"])
+def live_balance():
+    if not is_configured():
+        return jsonify({
+            "configured": False,
+            "balance_dollars": None,
+            "message": "API keys not configured",
+        })
+    from app.kalshi_trader import get_balance
+
+    balance = get_balance()
+    if balance is None:
+        return jsonify({
+            "configured": True,
+            "balance_dollars": None,
+            "message": "Failed to fetch balance — check API keys",
+        }), 502
+    return jsonify({
+        "configured": True,
+        "balance_dollars": balance["balance_dollars"],
+        "balance_cents": balance["balance_cents"],
+    })
+
+
+@api_bp.route("/live/trades", methods=["GET"])
+def live_trades_list():
+    limit = min(int(request.args.get("limit", 50)), 200)
+    trades = LiveTrade.query.order_by(LiveTrade.entry_at.desc()).limit(limit).all()
+    result = []
+    for trade in trades:
+        entry_at = trade.entry_at
+        result.append({
+            "id": trade.id,
+            "ticker": trade.ticker,
+            "side": trade.side,
+            "contracts": trade.contracts,
+            "entry_price": trade.entry_price,
+            "cost_dollars": trade.cost_dollars,
+            "kalshi_order_id": trade.kalshi_order_id,
+            "order_status": trade.order_status,
+            "entry_at": _utc_iso_z(entry_at),
+            "resolved": trade.resolved,
+            "exit_price": trade.exit_price,
+            "realized_pnl": trade.realized_pnl,
+            "outcome": trade.outcome,
+            "p_market": trade.p_market_at_entry,
+            "p_raw": trade.p_raw_at_entry,
+            "agreement_region": trade.agreement_region,
+            "error_detail": trade.error_detail,
+        })
+    return jsonify(result)
+
+
+@api_bp.route("/live/stats", methods=["GET"])
+def live_stats():
+    all_trades = LiveTrade.query.filter_by(resolved=True).all()
+    if not all_trades:
+        return jsonify({
+            "total": 0,
+            "wins": 0,
+            "losses": 0,
+            "win_rate": None,
+            "avg_win": None,
+            "avg_loss": None,
+            "net_pnl": 0,
+            "configured": is_configured(),
+        })
+
+    wins = [t for t in all_trades if t.outcome == "correct"]
+    losses = [t for t in all_trades if t.outcome == "wrong"]
+    net = sum(t.realized_pnl for t in all_trades if t.realized_pnl is not None)
+    avg_win = sum(t.realized_pnl for t in wins) / len(wins) if wins else 0
+    avg_loss = sum(t.realized_pnl for t in losses) / len(losses) if losses else 0
+
+    return jsonify({
+        "total": len(all_trades),
+        "wins": len(wins),
+        "losses": len(losses),
+        "win_rate": round(len(wins) / len(all_trades), 4) if all_trades else None,
+        "avg_win": round(avg_win, 2),
+        "avg_loss": round(avg_loss, 2),
+        "net_pnl": round(net, 2),
+        "configured": is_configured(),
+    })
+
+
+@api_bp.route("/live/test-order", methods=["POST"])
+def live_test_order():
+    """Verify API keys by fetching balance (no order placed)."""
+    if AppSettings.get("live_trading_enabled", "false") == "true":
+        return jsonify({"error": "Cannot test while live trading is enabled"}), 400
+    if not is_configured():
+        return jsonify({"error": "API keys not configured"}), 400
+
+    from app.kalshi_trader import get_balance
+
+    balance = get_balance()
+    if balance is None:
+        return jsonify({
+            "success": False,
+            "error": "Balance check failed — API keys may be invalid",
+            "balance": None,
+        }), 502
+
+    return jsonify({
+        "success": True,
+        "message": "API keys valid",
+        "balance_dollars": balance["balance_dollars"],
+        "balance_cents": balance["balance_cents"],
+    })
 
 
 @api_bp.route("/paper/portfolio", methods=["GET"])

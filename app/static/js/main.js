@@ -1636,7 +1636,20 @@ async function bootstrapDashboard() {
     }, POLL_INTERVALS.slow);
 }
 
+async function checkLiveTradingBanner() {
+    const settings = await apiFetch("/api/settings", { headers: { Accept: "application/json" } });
+    const banner = document.getElementById("live-trading-banner");
+    if (!banner) return;
+    if (settings?.live_trading_enabled === "true") {
+        banner.style.display = "flex";
+    } else {
+        banner.style.display = "none";
+    }
+}
+
 window.addEventListener("DOMContentLoaded", () => {
     highlightActiveNav();
+    checkLiveTradingBanner();
+    setInterval(checkLiveTradingBanner, 60000);
     bootstrapDashboard();
 });

@@ -760,4 +760,78 @@ window.addEventListener("DOMContentLoaded", async () => {
     setInterval(() => {
         mFetchDataCollectionStatus();
     }, MONITOR_POLL_INTERVALS.vslow);
+    setInterval(() => {
+        mFetchLiveTrades();
+    }, MONITOR_POLL_INTERVALS.normal);
+    mFetchLiveTrades();
 });
+
+async function mFetchLiveTrades() {
+    const [trades, stats, settings] = await Promise.all([
+        mApiFetch("/api/live/trades?limit=50", { headers: { Accept: "application/json" } }),
+        mApiFetch("/api/live/stats", { headers: { Accept: "application/json" } }),
+        mApiFetch("/api/settings", { headers: { Accept: "application/json" } }),
+    ]);
+
+    const section = document.getElementById("live-trades-section");
+    const list = document.getElementById("live-trades-list");
+    const summary = document.getElementById("live-trades-summary");
+    if (!section || !list) return;
+
+    const liveEnabled = (settings?.live_trading_enabled || "false") === "true";
+    const tradeRows = Array.isArray(trades) ? trades : [];
+    const showSection = liveEnabled || tradeRows.length > 0;
+    section.style.display = showSection ? "" : "none";
+    if (!showSection) return;
+
+    if (summary && stats) {
+        const winRate = stats.win_rate != null ? `${(stats.win_rate * 100).toFixed(1)}%` : "--";
+        const net = Number(stats.net_pnl || 0);
+        const netCls = net >= 0 ? "text-success" : "text-danger";
+        summary.innerHTML = `${stats.total || 0} trades · ${stats.wins || 0} wins · ${stats.losses || 0} losses · Net: <span class="${netCls}">${net >= 0 ? "+" : "-"}$${Math.abs(net).toFixed(2)}</span> · Win rate: ${winRate}`;
+    }
+
+    if (!tradeRows.length) {
+        list.innerHTML = '<p class="text-muted">No live trades yet.</p>';
+        return;
+    }
+
+    const sideBadge = (side) => (String(side).toUpperCase() === "YES"
+        ? '<span class="badge badge-success">YES</span>'
+        : '<span class="badge badge-danger">NO</span>');
+
+    list.innerHTML = tradeRows.map((row) => {
+        const side = String(row.side || "YES");
+        const pnl = Number(row.realized_pnl || 0);
+        const pnlCls = row.resolved ? (pnl >= 0 ? "text-success" : "text-danger") : "text-muted";
+        const pnlText = row.resolved
+            ? `${pnl >= 0 ? "+" : "-"}$${Math.abs(pnl).toFixed(2)}`
+            : "Open";
+        const outcome = row.resolved
+            ? (row.outcome === "correct"
+                ? '<span class="text-success">✓ Correct</span>'
+                : '<span class="text-danger">✗ Wrong</span>')
+            : `<span class="badge badge-warning">${row.order_status || "placed"}</span>`;
+        const exitLine = row.resolved
+            ? `Entry ${Number(row.entry_price || 0).toFixed(3)} → Exit ${Number(row.exit_price || 0).toFixed(3)}`
+            : `Entry ${Number(row.entry_price || 0).toFixed(3)} · ${row.order_status || "placed"}`;
+        const orderId = row.kalshi_order_id
+            ? `<p class="text-muted mono" style="font-size:0.75rem;">order: ${row.kalshi_order_id}</p>`
+            : "";
+        return `
+            <div class="monitor-activity-row">
+                <div>${sideBadge(side)} <span class="badge badge-danger">LIVE</span></div>
+                <div class="monitor-activity-main">
+                    <p class="mono">${row.ticker || "--"} · ${Number(row.contracts || 0).toFixed(0)} contracts @ ${Number(row.entry_price || 0).toFixed(3)}</p>
+                    <p class="text-muted">${exitLine} · ${mFormatSignalTime(row.entry_at)} · Cost ${mToMoney(row.cost_dollars)}</p>
+                    ${orderId}
+                    ${row.error_detail ? `<p class="text-danger">${row.error_detail}</p>` : ""}
+                </div>
+                <div class="monitor-activity-pnl">
+                    <p class="${pnlCls} mono">${pnlText}</p>
+                    <p>${outcome}</p>
+                </div>
+            </div>
+        `;
+    }).join("");
+}

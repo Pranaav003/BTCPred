@@ -223,6 +223,36 @@ class PaperTrade(db.Model):
         )
 
 
+class LiveTrade(db.Model):
+    """Real Kalshi order placed alongside paper trading."""
+
+    __tablename__ = "live_trades"
+
+    id = db.Column(db.Integer, primary_key=True)
+    ticker = db.Column(db.String(64), nullable=False, index=True)
+    side = db.Column(db.String(4), nullable=False)
+    contracts = db.Column(db.Float, nullable=False)
+    entry_price = db.Column(db.Float, nullable=False)
+    entry_price_cents = db.Column(db.Integer, nullable=False)
+    cost_dollars = db.Column(db.Float, nullable=False)
+    kalshi_order_id = db.Column(db.String(128), nullable=True)
+    order_status = db.Column(db.String(32), default="placed")
+    signal_id = db.Column(db.Integer, db.ForeignKey("signals.id"), nullable=True)
+    entry_at = db.Column(db.DateTime, default=utcnow)
+    resolved = db.Column(db.Boolean, default=False)
+    exit_price = db.Column(db.Float, nullable=True)
+    realized_pnl = db.Column(db.Float, nullable=True)
+    outcome = db.Column(db.String(16), nullable=True)
+    resolved_at = db.Column(db.DateTime, nullable=True)
+    p_market_at_entry = db.Column(db.Float, nullable=True)
+    p_raw_at_entry = db.Column(db.Float, nullable=True)
+    agreement_region = db.Column(db.String(32), nullable=True)
+    live_trade_size_setting = db.Column(db.Float, nullable=True)
+    error_detail = db.Column(db.String(512), nullable=True)
+
+    signal = db.relationship("Signal", backref="live_trades", lazy=True)
+
+
 class AppSettings(db.Model):
     """Simple key-value runtime settings store."""
 

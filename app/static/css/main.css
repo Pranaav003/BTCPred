@@ -2812,3 +2812,57 @@ a {
         grid-template-columns: 1fr;
     }
 }
+
+.global-banner {
+    width: 100%;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+}
+
+.banner-danger {
+    background: rgba(220, 38, 38, 0.15);
+    border-bottom: 1px solid rgba(220, 38, 38, 0.4);
+    color: #f87171;
+}
+
+.banner-danger a {
+    color: #f87171;
+    text-decoration: underline;
+}
+
+.live-status-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-bottom: 16px;
+}
+
+.live-status-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.live-status-item .label {
+    font-size: 0.875rem;
+}
+
+.settings-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+}
+
+.live-enable-row {
+    margin-top: 12px;
+}

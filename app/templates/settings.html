@@ -223,25 +223,86 @@
         </div>
     </article>
 
-    <article class="card settings-card">
-        <header class="panel-head">
-            <h3>Live Order Placement <span class="badge badge-danger">NOT IMPLEMENTED</span></h3>
+    <article class="card settings-card" id="live-trading-card">
+        <header class="settings-card-header panel-head">
+            <h3>Live Order Placement</h3>
+            <span id="live-trading-badge" class="badge badge-neutral">DISABLED</span>
         </header>
-        <div class="success-banner">
-            ✓ Paper auto-trader is active — controlled from the Dashboard. It automatically places paper trades when signals fire, tracking simulated P&amp;L without real orders.
+
+        <div class="live-status-row">
+            <div class="live-status-item">
+                <span class="label text-muted">API Keys</span>
+                <span id="api-key-status" class="value">Checking...</span>
+            </div>
+            <div class="live-status-item">
+                <span class="label text-muted">Balance</span>
+                <span id="live-balance" class="value mono">—</span>
+                <button type="button" id="refresh-balance-btn" class="btn-ghost btn-sm" title="Refresh balance">↻</button>
+            </div>
         </div>
-        <div class="warning-banner">
-            Live order placement requires Kalshi API authentication and is not yet implemented. Your paper trading auto-trader (controlled from the Dashboard) is separate and fully functional — it simulates trades without real money.
+
+        <div id="live-controls" class="hidden">
+            <div class="warning-banner">
+                ⚠ Live trading places REAL orders with REAL money on Kalshi.
+                Losses are permanent. Start at $5/trade and validate for at
+                least one week before increasing size.
+            </div>
+
+            <div class="settings-field">
+                <label for="live-trade-size">Live Trade Size ($)</label>
+                <input type="number" id="live-trade-size" min="1" max="500" step="1" value="5">
+                <p class="text-muted">Max per trade is capped at 10% of your balance.</p>
+            </div>
+
+            <div class="settings-field">
+                <label for="live-max-daily-loss">Max Daily Loss ($) — live trades</label>
+                <input type="number" id="live-max-daily-loss" min="10" max="1000" step="10" value="50">
+                <p class="text-muted">Auto-stops live trading for the day if net realized losses exceed this amount (shared with paper auto-trader).</p>
+            </div>
+
+            <div class="settings-field">
+                <button type="button" id="test-api-btn" class="btn-ghost">🔑 Verify API Keys</button>
+                <span id="test-api-result" class="text-muted"></span>
+            </div>
+
+            <label class="toggle-row live-enable-row">
+                <span>Enable Live Trading</span>
+                <span class="toggle-switch">
+                    <input type="checkbox" id="live-trading-toggle">
+                    <span class="toggle-slider"></span>
+                </span>
+            </label>
+            <p class="text-muted" id="live-trading-status-label">Live orders disabled — safe mode</p>
         </div>
-        <label class="toggle-row">
-            <span>Live Order Placement (requires API keys)</span>
-            <span class="toggle-switch">
-                <input type="checkbox" id="auto-trade-toggle" disabled>
-                <span class="toggle-slider"></span>
-            </span>
-        </label>
-        <p class="text-muted">No live orders will be placed from this page yet.</p>
+
+        <div id="live-not-configured">
+            <p class="text-muted">
+                Add <span class="mono">KALSHI_API_KEY_ID</span> and <span class="mono">KALSHI_PRIVATE_KEY</span>
+                environment variables on Render to enable live trading.
+            </p>
+            <a href="https://kalshi.com/account/api" target="_blank" rel="noopener noreferrer" class="btn-ghost btn-sm">Get API Keys →</a>
+        </div>
     </article>
+
+    <div id="live-confirm-modal" class="modal-backdrop" style="display:none" role="dialog" aria-modal="true">
+        <div class="modal-card">
+            <h3>Enable Live Trading?</h3>
+            <p class="text-muted">
+                This will place REAL orders with REAL money on Kalshi when signals fire.
+                Your paper trading will continue in parallel.
+            </p>
+            <div class="settings-info-grid">
+                <div><span class="text-muted">Live trade size</span><p class="mono" id="modal-trade-size">$5</p></div>
+                <div><span class="text-muted">Max daily loss</span><p class="mono" id="modal-daily-loss">$50</p></div>
+                <div><span class="text-muted">Kalshi balance</span><p class="mono" id="modal-balance">—</p></div>
+            </div>
+            <p class="text-danger">⚠ Are you absolutely sure? All losses are permanent.</p>
+            <div class="settings-actions">
+                <button type="button" id="modal-cancel" class="btn-ghost">Cancel</button>
+                <button type="button" id="modal-confirm" class="btn-danger">Enable Live Trading</button>
+            </div>
+        </div>
+    </div>
 
     <article class="card settings-card">
         <header class="panel-head">

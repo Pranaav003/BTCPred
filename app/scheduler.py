@@ -14,7 +14,8 @@ from app.feature_engineering import get_live_snapshot
 from app.kalshi_client import get_active_market, get_btc_price, get_market_prices
 from app.models import AppSettings, PaperTrade
 from app.paper_trading import execute_paper_trade, get_realized_pnl_today_utc
-from app.resolver import resolve_pending_markets
+from app.kalshi_auth import is_configured as kalshi_configured
+from app.resolver import resolve_pending_markets, resolve_live_trades
 from app.signal_engine import evaluate_live_signal, signal_to_dict
 from train_raw_model import RAW_FEATURES
 
@@ -83,6 +84,149 @@ def _price_context_for_snapshot() -> dict:
     out["up_price_cents"] = _cents(quote.get("yes_ask"))
     out["down_price_cents"] = _cents(quote.get("no_ask"))
     return out
+
+
+def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
+    """Place a real Kalshi order mirroring the signal. All safety checks run first."""
+    from datetime import datetime, timezone
+
+    from app.kalshi_trader import get_balance, place_order
+    from app.models import AppSettings, LiveTrade, db
+    from app.signal_engine import MIN_ENTRY_PRICE
+
+    with app.app_context():
+        try:
+            today = datetime.now(timezone.utc).date()
+            today_start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+            today_trades = LiveTrade.query.filter(
+                LiveTrade.resolved.is_(True),
+                LiveTrade.resolved_at.isnot(None),
+                LiveTrade.resolved_at >= today_start,
+            ).all()
+            today_pnl = sum(t.realized_pnl for t in today_trades if t.realized_pnl is not None)
+            max_daily_loss = float(AppSettings.get("max_daily_loss", "50.0") or 50.0)
+            if max_daily_loss > 0 and today_pnl <= -max_daily_loss:
+                logger.warning(
+                    "Live trading paused: daily loss limit reached ($%.2f <= -$%.2f)",
+                    today_pnl,
+                    max_daily_loss,
+                )
+                return
+
+            balance = get_balance()
+            if balance is None:
+                logger.error("Live trade skipped: cannot fetch Kalshi balance")
+                return
+
+            available = balance["balance_dollars"]
+            if available < 1.0:
+                logger.warning("Live trade skipped: insufficient balance $%.2f", available)
+                return
+
+            ticker = str(snapshot["market_ticker"])
+            existing = LiveTrade.query.filter_by(ticker=ticker, resolved=False).first()
+            if existing:
+                logger.info(
+                    "Live trade skipped: open %s position already exists on %s",
+                    existing.side,
+                    ticker,
+                )
+                return
+
+            seconds_left = int(snapshot.get("seconds_to_close", 0) or 0)
+            if seconds_left < MIN_SECONDS_FOR_AUTO_TRADE:
+                logger.info(
+                    "Live trade skipped: only %ss to close, minimum is %ss",
+                    seconds_left,
+                    MIN_SECONDS_FOR_AUTO_TRADE,
+                )
+                return
+
+            live_size = float(AppSettings.get("live_trade_size", "5.0") or 5.0)
+            max_risk = available * 0.10
+            trade_size = min(live_size, max_risk)
+
+            if result.signal == "PAPER BUY YES":
+                side = "yes"
+                entry_price = float(result.p_market)
+            else:
+                side = "no"
+                entry_price = 1.0 - float(result.p_market)
+
+            if entry_price < float(MIN_ENTRY_PRICE):
+                logger.warning(
+                    "Live trade skipped: entry price %.3f below %.3f minimum (extreme leverage)",
+                    entry_price,
+                    float(MIN_ENTRY_PRICE),
+                )
+                return
+
+            contracts = int(trade_size / entry_price)
+            if contracts < 1:
+                logger.warning(
+                    "Live trade skipped: trade size $%.2f too small for 1 contract at %.2f%%",
+                    trade_size,
+                    entry_price * 100,
+                )
+                return
+
+            price_cents = max(1, min(99, int(entry_price * 100)))
+            actual_cost = contracts * entry_price
+
+            logger.info(
+                "Placing live order: %s %s contracts on %s at %sc ($%.2f risk, balance $%.2f)",
+                side.upper(),
+                contracts,
+                ticker,
+                price_cents,
+                actual_cost,
+                available,
+            )
+
+            order_result = place_order(
+                ticker=ticker,
+                side=side,
+                count=contracts,
+                price_cents=price_cents,
+            )
+
+            signal_id = saved_signal.id if saved_signal is not None else None
+            live_trade = LiveTrade(
+                ticker=ticker,
+                side=side.upper(),
+                contracts=contracts,
+                entry_price=entry_price,
+                entry_price_cents=price_cents,
+                cost_dollars=actual_cost,
+                kalshi_order_id=order_result.get("order_id"),
+                order_status="placed" if order_result.get("success") else "failed",
+                signal_id=signal_id,
+                p_market_at_entry=result.p_market,
+                p_raw_at_entry=result.p_raw,
+                agreement_region=result.agreement_region,
+                live_trade_size_setting=live_size,
+                error_detail=order_result.get("error") if not order_result.get("success") else None,
+            )
+            db.session.add(live_trade)
+            db.session.commit()
+
+            if order_result.get("success"):
+                logger.info(
+                    "LIVE TRADE RECORDED: %s %s contracts on %s — order_id=%s",
+                    side.upper(),
+                    contracts,
+                    ticker,
+                    order_result.get("order_id"),
+                )
+            else:
+                detail = order_result.get("detail", "")
+                logger.error(
+                    "LIVE ORDER FAILED (recorded for audit): %s — %s",
+                    order_result.get("error"),
+                    detail,
+                )
+        except Exception:
+            logger.exception("Live trade execution error")
 
 
 def poll_and_signal() -> None:
@@ -244,6 +388,14 @@ def poll_and_signal() -> None:
                             else:
                                 logger.warning("Skipped auto-trade because entry price is invalid for side %s", side)
 
+            # === LIVE TRADING (parallel to paper; additive, not a replacement) ===
+            live_enabled = (
+                AppSettings.get("live_trading_enabled", "false") == "true"
+                and kalshi_configured()
+            )
+            if live_enabled and result.signal in ("PAPER BUY YES", "PAPER BUY NO"):
+                _execute_live_trade(result, snapshot, saved_signal, _app)
+
             logger.info(
                 "Signal: %s | p_market=%.3f | p_raw=%.3f | %s",
                 result.signal,
@@ -268,7 +420,10 @@ def resolve_job() -> None:
             return
         with _app.app_context():
             count = resolve_pending_markets()
+            live_resolved = resolve_live_trades()
             logger.info("Resolution check complete, %s markets resolved", count)
+            if live_resolved > 0:
+                logger.info("Resolved %s live trade(s)", live_resolved)
     except Exception:
         logger.exception("resolve_job failed")
 

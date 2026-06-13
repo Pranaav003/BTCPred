@@ -226,6 +226,8 @@ def seed_default_settings() -> None:
         "max_daily_loss": "200.0",
         "high_conviction_volatility_override": "0.80",
         "scheduler_running": "false",
+        "live_trading_enabled": "false",
+        "live_trade_size": "5.0",
     }
 
     for key, value in defaults.items():

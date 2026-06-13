@@ -122,3 +122,52 @@ Generates a PAPER BUY YES signal when:
 - `seconds_to_close` is within the configured time window
 
 Based on ensemble disagreement analysis showing strong YES agreement between market probability and raw-feature model produces 91-95% accuracy historically.
+
+## Live Trading Setup
+
+1. Generate API keys at [kalshi.com/account/api](https://kalshi.com/account/api)
+
+2. Add to Render environment variables:
+   - `KALSHI_API_KEY_ID` — your key ID
+   - `KALSHI_PRIVATE_KEY` — full RSA private key PEM (paste with real newlines)
+
+3. Add to local `.env` for testing (never commit secrets):
+
+```env
+KALSHI_API_KEY_ID=your-key-id
+KALSHI_PRIVATE_KEY=-----BEGIN RSA PRIVATE KEY-----
+...
+-----END RSA PRIVATE KEY-----
+```
+
+4. Verify keys work locally:
+
+```bash
+pip install cryptography
+python -c "
+from dotenv import load_dotenv; load_dotenv()
+from app.kalshi_trader import get_balance
+b = get_balance()
+print(f'Balance: \${b[\"balance_dollars\"]:.2f}' if b else 'FAILED')
+"
+```
+
+5. In **Settings → Live Order Placement**:
+   - Click **Verify API Keys** — must show balance
+   - Set Live Trade Size to $5
+   - Set Max Daily Loss to $50
+   - Toggle **Enable Live Trading** and confirm
+
+6. Watch Render logs for:
+
+```text
+LIVE ORDER PLACED: YES 25 contracts on KXBTC15M-... at 72c
+```
+
+### Safety Rules
+
+- Never increase trade size more than 2x per week
+- If you lose 3 in a row, pause 24 hours before resuming
+- Paper trading runs in parallel — compare paper vs live daily
+- Max daily loss auto-stops live trading if the limit is hit
+- Rotate API keys immediately if they are ever exposed in chat, logs, or git

@@ -119,6 +119,44 @@ def resolve_pending_markets():
         return 0
 
 
+def resolve_live_trades() -> int:
+    """Resolve open live trades when their market outcome is known."""
+    from app.models import LiveTrade
+
+    open_trades = LiveTrade.query.filter_by(resolved=False).all()
+    if not open_trades:
+        return 0
+
+    resolved_count = 0
+    now_utc = datetime.now(timezone.utc)
+    for trade in open_trades:
+        market = Market.query.filter_by(ticker=trade.ticker).first()
+        if market is None or market.final_outcome_yes is None:
+            continue
+
+        outcome_yes = bool(market.final_outcome_yes)
+        trade_is_yes = trade.side.upper() == "YES"
+        won = (trade_is_yes and outcome_yes) or (not trade_is_yes and not outcome_yes)
+
+        if won:
+            exit_price = 1.0
+            pnl = trade.contracts * (1.0 - trade.entry_price)
+        else:
+            exit_price = 0.0
+            pnl = -trade.cost_dollars
+
+        trade.resolved = True
+        trade.exit_price = exit_price
+        trade.realized_pnl = round(float(pnl), 2)
+        trade.outcome = "correct" if won else "wrong"
+        trade.resolved_at = now_utc
+        resolved_count += 1
+
+    if resolved_count:
+        db.session.commit()
+    return resolved_count
+
+
 def get_resolution_summary():
     """Return aggregate summary of market/signal resolution state."""
     now_utc = datetime.now(timezone.utc)
