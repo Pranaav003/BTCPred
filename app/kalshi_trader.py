@@ -50,15 +50,21 @@ def place_order(
         return {"error": f"Invalid price {price_cents}c — must be 1-99"}
 
     path = "/portfolio/orders"
-    body = {
+    normalized_side = str(side).lower()
+    body: dict = {
         "ticker": ticker,
         "action": "buy",
-        "side": side,
+        "side": normalized_side,
         "type": "limit",
-        "count": count,
-        "limit_price": price_cents,
+        "count": int(count),
         "time_in_force": "immediate_or_cancel",
     }
+    if normalized_side == "yes":
+        body["yes_price"] = int(price_cents)
+    elif normalized_side == "no":
+        body["no_price"] = int(price_cents)
+    else:
+        return {"error": f"Invalid side {side!r} — must be yes or no"}
     headers = get_kalshi_headers("POST", path)
     if not headers:
         return {"error": "Failed to generate auth headers"}
@@ -71,7 +77,12 @@ def place_order(
         )
         if response.status_code in (200, 201):
             data = response.json()
-            order_id = data.get("order", {}).get("order_id", "unknown")
+            order_payload = data.get("order") if isinstance(data.get("order"), dict) else data
+            order_id = (
+                order_payload.get("order_id")
+                or data.get("order_id")
+                or "unknown"
+            )
             logger.info(
                 "LIVE ORDER PLACED: %s %s contracts on %s at %sc — order_id=%s",
                 side.upper(),

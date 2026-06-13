@@ -168,6 +168,6 @@ LIVE ORDER PLACED: YES 25 contracts on KXBTC15M-... at 72c
 
 - Never increase trade size more than 2x per week
 - If you lose 3 in a row, pause 24 hours before resuming
-- Paper trading runs in parallel — compare paper vs live daily
+- Paper auto-trading is paused while live trading is enabled (manual paper trades still work)
 - Max daily loss auto-stops live trading if the limit is hit
 - Rotate API keys immediately if they are ever exposed in chat, logs, or git

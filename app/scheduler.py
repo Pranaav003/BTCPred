@@ -300,9 +300,29 @@ def poll_and_signal() -> None:
             )
             logger.info("Signal saved to DB, id=%s", saved_signal.id)
 
+            live_setting_on = AppSettings.get("live_trading_enabled", "false") == "true"
+            live_keys_ok = kalshi_configured()
+            live_enabled = live_setting_on and live_keys_ok
+            actionable = result.signal in ("PAPER BUY YES", "PAPER BUY NO")
+
+            # Live takes precedence: when live is on + keys configured, only place real orders.
+            if live_enabled and actionable:
+                logger.info("Live trading active — skipping paper auto-trade for this signal")
+                _execute_live_trade(result, snapshot, saved_signal, _app)
+            elif live_setting_on and not live_keys_ok and actionable:
+                logger.warning(
+                    "Live trading enabled but API keys not configured; falling back to paper auto-trade"
+                )
+
             auto_trade_enabled = AppSettings.get("auto_trade_enabled", "false") == "true"
             paper_trading_enabled = AppSettings.get("paper_trading_enabled", "false") == "true"
-            if auto_trade_enabled and paper_trading_enabled and result.signal in ("PAPER BUY YES", "PAPER BUY NO"):
+            paper_auto_allowed = not (live_setting_on and live_keys_ok)
+            if (
+                paper_auto_allowed
+                and auto_trade_enabled
+                and paper_trading_enabled
+                and actionable
+            ):
                 if _auto_trade_allowed_by_daily_loss():
                     if result.p_market <= 0 or result.p_market >= 1:
                         logger.error("Invalid p_market=%s, skipping", result.p_market)
@@ -387,14 +407,6 @@ def poll_and_signal() -> None:
                                     )
                             else:
                                 logger.warning("Skipped auto-trade because entry price is invalid for side %s", side)
-
-            # === LIVE TRADING (parallel to paper; additive, not a replacement) ===
-            live_enabled = (
-                AppSettings.get("live_trading_enabled", "false") == "true"
-                and kalshi_configured()
-            )
-            if live_enabled and result.signal in ("PAPER BUY YES", "PAPER BUY NO"):
-                _execute_live_trade(result, snapshot, saved_signal, _app)
 
             logger.info(
                 "Signal: %s | p_market=%.3f | p_raw=%.3f | %s",

@@ -130,6 +130,8 @@ def resolve_live_trades() -> int:
     resolved_count = 0
     now_utc = datetime.now(timezone.utc)
     for trade in open_trades:
+        if trade.order_status != "placed" or not trade.kalshi_order_id:
+            continue
         market = Market.query.filter_by(ticker=trade.ticker).first()
         if market is None or market.final_outcome_yes is None:
             continue
