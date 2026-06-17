@@ -1096,10 +1096,12 @@ def _serialize_live_trade(trade: LiveTrade) -> dict:
 
 
 def _placed_live_trades_query():
-    """Live trades that actually reached Kalshi (exclude failed API placements)."""
+    """Live trades that actually filled on Kalshi (exclude failed/unfilled API placements)."""
     return LiveTrade.query.filter(
         LiveTrade.order_status == "placed",
         LiveTrade.kalshi_order_id.isnot(None),
+        LiveTrade.resolved.is_(True),
+        LiveTrade.outcome.in_(("correct", "wrong")),
     )
 
 
@@ -1123,11 +1125,15 @@ def live_stats():
         tzinfo=timezone.utc,
     )
     today_trades = (
-        _placed_live_trades_query()
-        .filter(LiveTrade.entry_at >= today_start)
+        LiveTrade.query.filter(
+            LiveTrade.order_status == "placed",
+            LiveTrade.kalshi_order_id.isnot(None),
+            LiveTrade.contracts > 0,
+            LiveTrade.entry_at >= today_start,
+        )
         .all()
     )
-    today_resolved = [t for t in today_trades if t.resolved]
+    today_resolved = [t for t in today_trades if t.resolved and t.outcome in ("correct", "wrong")]
     today_open = [t for t in today_trades if not t.resolved]
     today_net = sum(t.realized_pnl for t in today_resolved if t.realized_pnl is not None)
 
@@ -1168,6 +1174,17 @@ def live_stats():
         "today_net_pnl": round(today_net, 2),
         "configured": is_configured(),
     })
+
+
+@api_bp.route("/live/reconcile", methods=["POST"])
+def live_reconcile():
+    """Re-fetch Kalshi settlements and correct live trade PnL."""
+    if not is_configured():
+        return jsonify({"error": "API keys not configured"}), 400
+    from app.resolver import resolve_live_trades
+
+    updated = resolve_live_trades()
+    return jsonify({"reconciled": updated})
 
 
 @api_bp.route("/live/test-order", methods=["POST"])

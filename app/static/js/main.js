@@ -368,12 +368,16 @@ function renderRecentTradesList(trades, mode = "paper") {
 
         const statusEl = document.createElement("span");
         if (isLive) {
-            const failed = t.order_status === "failed" || !t.kalshi_order_id;
-            const open = !failed && !t.resolved;
+            const failed = t.order_status === "failed" || (!t.kalshi_order_id && t.order_status !== "unfilled");
+            const unfilled = t.order_status === "unfilled" || t.outcome === "unfilled";
+            const open = !failed && !unfilled && !t.resolved;
             statusEl.className = "trade-recent-status";
             if (failed) {
                 statusEl.classList.add("failed");
                 statusEl.textContent = "Failed";
+            } else if (unfilled) {
+                statusEl.classList.add("failed");
+                statusEl.textContent = "Unfilled";
             } else if (open) {
                 statusEl.classList.add("open");
                 statusEl.textContent = "Open";
@@ -391,8 +395,10 @@ function renderRecentTradesList(trades, mode = "paper") {
         const checkEl = document.createElement("span");
         checkEl.className = "trade-recent-check";
         if (isLive) {
-            const failed = t.order_status === "failed" || !t.kalshi_order_id;
+            const failed = t.order_status === "failed" || (!t.kalshi_order_id && t.order_status !== "unfilled");
+            const unfilled = t.order_status === "unfilled" || t.outcome === "unfilled";
             if (failed) checkEl.textContent = "!";
+            else if (unfilled) checkEl.textContent = "—";
             else if (!t.resolved) checkEl.textContent = "…";
             else {
                 const pnl = Number(t.realized_pnl);

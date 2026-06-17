@@ -71,10 +71,11 @@ def resolve_market(market):
         outcome_yes = None
 
     if outcome_yes is None:
-        final_price = result.get("final_price")
-        if final_price is None:
-            return False
-        outcome_yes = float(final_price) >= 0.5
+        logger.warning(
+            "Market %s finalized without yes/no result — skipping resolution",
+            market.ticker,
+        )
+        return False
 
     market.resolved = True
     market.final_outcome_yes = bool(outcome_yes)
@@ -119,44 +120,107 @@ def resolve_pending_markets():
         return 0
 
 
+def _apply_kalshi_settlement(trade, settlement: dict, now_utc: datetime) -> bool:
+    """Update a live trade from Kalshi /portfolio/settlements (source of truth)."""
+    from app.kalshi_trader import _parse_fp_count, _parse_fp_dollars
+
+    market_result = str(settlement.get("market_result") or "").strip().lower()
+    if market_result not in {"yes", "no"}:
+        return False
+
+    trade_is_yes = trade.side.upper() == "YES"
+    yes_count = _parse_fp_count(settlement.get("yes_count_fp"))
+    no_count = _parse_fp_count(settlement.get("no_count_fp"))
+    side_count = yes_count if trade_is_yes else no_count
+
+    if side_count <= 0:
+        trade.resolved = True
+        trade.order_status = "unfilled"
+        trade.contracts = 0.0
+        trade.cost_dollars = 0.0
+        trade.exit_price = 0.0
+        trade.realized_pnl = 0.0
+        trade.outcome = "unfilled"
+        trade.resolved_at = now_utc
+        return True
+
+    yes_cost = float(_parse_fp_dollars(settlement.get("yes_total_cost_dollars")) or 0.0)
+    no_cost = float(_parse_fp_dollars(settlement.get("no_total_cost_dollars")) or 0.0)
+    fee_cost = float(_parse_fp_dollars(settlement.get("fee_cost")) or 0.0)
+    revenue_cents = int(settlement.get("revenue") or 0)
+    total_cost = yes_cost + no_cost
+    pnl = round((revenue_cents / 100.0) - total_cost - fee_cost, 2)
+
+    outcome_yes = market_result == "yes"
+    won = (trade_is_yes and outcome_yes) or (not trade_is_yes and not outcome_yes)
+    side_cost = yes_cost if trade_is_yes else no_cost
+
+    trade.resolved = True
+    trade.order_status = "placed"
+    trade.contracts = side_count
+    trade.cost_dollars = round(side_cost, 2)
+    trade.exit_price = 1.0 if won else 0.0
+    trade.realized_pnl = pnl
+    trade.outcome = "correct" if won else "wrong"
+    trade.resolved_at = now_utc
+    return True
+
+
 def resolve_live_trades() -> int:
-    """Resolve open live trades when their market outcome is known."""
+    """Resolve or reconcile live trades using Kalshi settlement data."""
+    from app.kalshi_trader import get_settlement_for_ticker, is_configured
     from app.models import LiveTrade
 
-    open_trades = LiveTrade.query.filter_by(resolved=False).all()
-    if not open_trades:
+    if not is_configured():
         return 0
 
-    resolved_count = 0
+    trades = (
+        LiveTrade.query.filter(
+            LiveTrade.kalshi_order_id.isnot(None),
+            LiveTrade.order_status.in_(("placed", "unfilled")),
+        )
+        .order_by(LiveTrade.entry_at.asc())
+        .all()
+    )
+    if not trades:
+        return 0
+
+    updated = 0
     now_utc = datetime.now(timezone.utc)
-    for trade in open_trades:
-        if trade.order_status != "placed" or not trade.kalshi_order_id:
-            continue
-        market = Market.query.filter_by(ticker=trade.ticker).first()
-        if market is None or market.final_outcome_yes is None:
+    settlement_cache: dict[str, dict | None] = {}
+    resolution_cache: dict[str, dict | None] = {}
+
+    for trade in trades:
+        ticker = trade.ticker
+        if ticker not in settlement_cache:
+            settlement_cache[ticker] = get_settlement_for_ticker(ticker)
+        settlement = settlement_cache[ticker]
+        if settlement is not None:
+            if _apply_kalshi_settlement(trade, settlement, now_utc):
+                updated += 1
             continue
 
-        outcome_yes = bool(market.final_outcome_yes)
-        trade_is_yes = trade.side.upper() == "YES"
-        won = (trade_is_yes and outcome_yes) or (not trade_is_yes and not outcome_yes)
-
-        if won:
-            exit_price = 1.0
-            pnl = trade.contracts * (1.0 - trade.entry_price)
-        else:
-            exit_price = 0.0
-            pnl = -trade.cost_dollars
+        if ticker not in resolution_cache:
+            resolution_cache[ticker] = get_market_resolution(ticker)
+        resolution = resolution_cache[ticker]
+        if not resolution or resolution.get("resolved") is not True:
+            continue
+        if resolution.get("result") not in ("yes", "no"):
+            continue
 
         trade.resolved = True
-        trade.exit_price = exit_price
-        trade.realized_pnl = round(float(pnl), 2)
-        trade.outcome = "correct" if won else "wrong"
+        trade.order_status = "unfilled"
+        trade.contracts = 0.0
+        trade.cost_dollars = 0.0
+        trade.exit_price = 0.0
+        trade.realized_pnl = 0.0
+        trade.outcome = "unfilled"
         trade.resolved_at = now_utc
-        resolved_count += 1
+        updated += 1
 
-    if resolved_count:
+    if updated:
         db.session.commit()
-    return resolved_count
+    return updated
 
 
 def get_resolution_summary():

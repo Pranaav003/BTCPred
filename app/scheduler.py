@@ -190,6 +190,27 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 price_cents=price_cents,
             )
 
+            if order_result.get("success"):
+                filled_contracts = int(order_result.get("fill_count") or contracts)
+                fill_cost = order_result.get("fill_cost_dollars")
+                if fill_cost is not None:
+                    actual_cost = float(fill_cost)
+                else:
+                    actual_cost = filled_contracts * entry_price
+                contracts = filled_contracts
+                order_status = "placed"
+                error_detail = None
+            elif order_result.get("unfilled"):
+                contracts = 0
+                actual_cost = 0.0
+                order_status = "unfilled"
+                error_detail = order_result.get("error") or "No contracts filled"
+            else:
+                order_status = "failed"
+                error_detail = order_result.get("error")
+                if order_result.get("detail"):
+                    error_detail = f"{error_detail}: {order_result.get('detail')}"
+
             signal_id = saved_signal.id if saved_signal is not None else None
             live_trade = LiveTrade(
                 ticker=ticker,
@@ -199,13 +220,13 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 entry_price_cents=price_cents,
                 cost_dollars=actual_cost,
                 kalshi_order_id=order_result.get("order_id"),
-                order_status="placed" if order_result.get("success") else "failed",
+                order_status=order_status,
                 signal_id=signal_id,
                 p_market_at_entry=result.p_market,
                 p_raw_at_entry=result.p_raw,
                 agreement_region=result.agreement_region,
                 live_trade_size_setting=live_size,
-                error_detail=order_result.get("error") if not order_result.get("success") else None,
+                error_detail=error_detail,
             )
             db.session.add(live_trade)
             db.session.commit()
@@ -215,6 +236,13 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                     "LIVE TRADE RECORDED: %s %s contracts on %s — order_id=%s",
                     side.upper(),
                     contracts,
+                    ticker,
+                    order_result.get("order_id"),
+                )
+            elif order_result.get("unfilled"):
+                logger.warning(
+                    "LIVE ORDER UNFILLED (recorded): %s on %s — order_id=%s",
+                    error_detail,
                     ticker,
                     order_result.get("order_id"),
                 )

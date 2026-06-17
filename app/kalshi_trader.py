@@ -11,6 +11,44 @@ from app.kalshi_auth import TRADING_BASE_URL, get_kalshi_headers, is_configured
 logger = logging.getLogger(__name__)
 
 
+def _parse_fp_count(value) -> float:
+    if value is None:
+        return 0.0
+    try:
+        return float(str(value))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _parse_fp_dollars(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_order_fill(order_payload: dict) -> dict:
+    """Extract fill count and cost from a Kalshi order response."""
+    if not isinstance(order_payload, dict):
+        order_payload = {}
+    fill_count = _parse_fp_count(
+        order_payload.get("fill_count_fp") or order_payload.get("fill_count")
+    )
+    fill_cost_dollars = _parse_fp_dollars(order_payload.get("taker_fill_cost_dollars"))
+    if fill_cost_dollars is None and order_payload.get("taker_fill_cost") is not None:
+        try:
+            fill_cost_dollars = float(order_payload["taker_fill_cost"]) / 100.0
+        except (TypeError, ValueError):
+            fill_cost_dollars = None
+    return {
+        "fill_count": fill_count,
+        "fill_cost_dollars": fill_cost_dollars,
+        "status": order_payload.get("status"),
+    }
+
+
 def get_balance() -> dict | None:
     if not is_configured():
         return None
@@ -83,15 +121,41 @@ def place_order(
                 or data.get("order_id")
                 or "unknown"
             )
+            fill = _parse_order_fill(order_payload)
+            fill_count = int(fill["fill_count"]) if fill["fill_count"] >= 1 else 0
+            if fill_count < 1:
+                logger.warning(
+                    "LIVE ORDER UNFILLED: %s %s contracts on %s at %sc — order_id=%s status=%s",
+                    side.upper(),
+                    count,
+                    ticker,
+                    price_cents,
+                    order_id,
+                    fill.get("status"),
+                )
+                return {
+                    "success": False,
+                    "unfilled": True,
+                    "order_id": order_id,
+                    "fill_count": 0,
+                    "error": "No contracts filled (IOC order)",
+                    "order": data,
+                }
             logger.info(
-                "LIVE ORDER PLACED: %s %s contracts on %s at %sc — order_id=%s",
+                "LIVE ORDER PLACED: %s %s filled on %s at %sc — order_id=%s",
                 side.upper(),
-                count,
+                fill_count,
                 ticker,
                 price_cents,
                 order_id,
             )
-            return {"success": True, "order": data, "order_id": order_id}
+            return {
+                "success": True,
+                "order": data,
+                "order_id": order_id,
+                "fill_count": fill_count,
+                "fill_cost_dollars": fill["fill_cost_dollars"],
+            }
         logger.error(
             "LIVE ORDER FAILED: %s — %s (ticker=%s, side=%s, count=%s, price=%sc)",
             response.status_code,
@@ -125,3 +189,36 @@ def get_open_positions() -> list:
         return []
     except Exception:
         return []
+
+
+def get_settlement_for_ticker(ticker: str) -> dict | None:
+    """Fetch Kalshi settlement for a market (source of truth for PnL)."""
+    if not is_configured():
+        return None
+    path = "/portfolio/settlements"
+    headers = get_kalshi_headers("GET", path)
+    if not headers:
+        return None
+    try:
+        response = requests.get(
+            TRADING_BASE_URL + path,
+            headers=headers,
+            params={"ticker": ticker, "limit": 1},
+            timeout=10,
+        )
+        if response.status_code != 200:
+            logger.warning(
+                "Settlement fetch failed for %s: %s %s",
+                ticker,
+                response.status_code,
+                response.text[:200],
+            )
+            return None
+        settlements = response.json().get("settlements") or []
+        if not settlements:
+            return None
+        row = settlements[0]
+        return row if isinstance(row, dict) else None
+    except Exception as exc:
+        logger.error("Settlement fetch error for %s: %s", ticker, exc)
+        return None

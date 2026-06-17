@@ -417,11 +417,9 @@ def get_market_resolution(ticker: str) -> dict | None:
         market.get("resolution_price")
         if market.get("resolution_price") is not None
         else market.get("close_price")
-        if market.get("close_price") is not None
-        else market.get("yes_price")
     )
 
-    resolved = bool((isinstance(status, str) and status.lower() == "finalized") or (result_str is not None))
+    resolved = result_str is not None
 
     return {
         "ticker": market.get("ticker", ticker),
