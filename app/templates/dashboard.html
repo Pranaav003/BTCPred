@@ -45,12 +45,22 @@
             <p class="text-muted trade-freshness" id="chart-freshness">Updated -- · <span class="dot market-dot"></span>Market · <span class="dot model-dot"></span>Model</p>
         </article>
 
-        <article class="card trade-mini-card trade-recent-trades">
+        <article class="card trade-mini-card trade-recent-trades" id="recent-trades-card">
             <header class="panel-head">
-                <h3>Recent Trades</h3>
-                <span class="text-muted trade-mini-sub">Last 5 resolved</span>
+                <h3 id="recent-trades-title">Recent Trades</h3>
+                <span class="text-muted trade-mini-sub" id="recent-trades-sub">Last 5 resolved</span>
             </header>
-            <ul class="trade-recent-list" id="recent-trades-list" aria-label="Recent resolved paper trades">
+            <div class="live-account-strip" id="live-account-strip" style="display:none;" aria-live="polite">
+                <div class="live-account-strip-row">
+                    <span class="text-muted">Kalshi balance</span>
+                    <span class="mono live-account-balance" id="live-kalshi-balance">--</span>
+                </div>
+                <div class="live-account-strip-row">
+                    <span class="text-muted">Live net (all time)</span>
+                    <span class="mono" id="live-net-pnl">--</span>
+                </div>
+            </div>
+            <ul class="trade-recent-list" id="recent-trades-list" aria-label="Recent trades">
                 <li class="trade-recent-empty text-muted" id="recent-trades-empty">No resolved trades yet</li>
             </ul>
         </article>
@@ -72,7 +82,7 @@
                     </p>
                 </div>
                 <div class="signal-intel-cell">
-                    <p class="signal-intel-label text-muted">Today&apos;s Trades</p>
+                    <p class="signal-intel-label text-muted" id="intel-todays-trades-label">Today&apos;s Trades</p>
                     <p class="signal-intel-value" id="intel-todays-trades">--</p>
                 </div>
                 <div class="signal-intel-cell">

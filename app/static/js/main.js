@@ -37,6 +37,7 @@ const state = {
     mispricingThreshold: 0.10,
     openPositionTicker: null,
     openPositionSide: null,
+    liveTradingEnabled: false,
 };
 
 const toText = (value) => (value === null || value === undefined || value === "" ? "--" : String(value));
@@ -209,9 +210,29 @@ function renderBestRegionCell(regionRow) {
     el.classList.add("text-success");
 }
 
-function renderTodaysTradesCell(trades) {
+function renderTodaysTradesCell(trades, options = {}) {
     const el = document.getElementById("intel-todays-trades");
+    const labelEl = document.getElementById("intel-todays-trades-label");
     if (!el) return;
+    if (labelEl) {
+        labelEl.textContent = options.isLive ? "Today's Live Trades" : "Today's Trades";
+    }
+    if (options.isLive && options.liveStats) {
+        const stats = options.liveStats;
+        const n = Number(stats.today_count || 0);
+        const open = Number(stats.today_open || 0);
+        const net = Number(stats.today_net_pnl || 0);
+        el.classList.remove("text-success", "text-danger");
+        if (n === 0) {
+            el.textContent = `0 trades  ${formatSignedPnl2(0)} today`;
+            return;
+        }
+        const netClass = net >= 0 ? "text-success" : "text-danger";
+        el.classList.add(netClass);
+        const openSuffix = open > 0 ? ` · ${open} open` : "";
+        el.textContent = `${n} trade${n === 1 ? "" : "s"}  ${formatSignedPnl2(net)} today${openSuffix}`;
+        return;
+    }
     if (!Array.isArray(trades) || !trades.length) {
         el.textContent = `0 trades  ${formatSignedPnl2(0)} today`;
         el.classList.remove("text-success", "text-danger");
@@ -238,65 +259,228 @@ function renderTodaysTradesCell(trades) {
     el.textContent = `${n} trade${n === 1 ? "" : "s"}  ${formatSignedPnl2(net)} today`;
 }
 
-function renderRecentTradesList(trades) {
+function formatPctProb(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : "—";
+}
+
+function liveTradeModelLine(trade) {
+    const pRaw = formatPctProb(trade.p_raw);
+    const pMarket = formatPctProb(trade.p_market);
+    const region = trade.agreement_region ? regionLabelForIntel(String(trade.agreement_region)) : null;
+    const reason = trade.signal_reason ? String(trade.signal_reason) : null;
+    const secs = Number(trade.seconds_to_close_at_entry);
+    const timing = Number.isFinite(secs) ? `${secs}s to close` : null;
+    const parts = [
+        `Model <span class="model-val">${pRaw}</span>`,
+        `Market <span class="market-val">${pMarket}</span>`,
+    ];
+    if (region) parts.push(region);
+    if (timing) parts.push(timing);
+    let line = parts.join(" · ");
+    if (reason) line += ` — ${reason}`;
+    return line;
+}
+
+function updateRecentTradesHeader(isLive) {
+    const title = document.getElementById("recent-trades-title");
+    const sub = document.getElementById("recent-trades-sub");
+    const card = document.getElementById("recent-trades-card");
+    if (title) title.textContent = isLive ? "Recent Live Trades" : "Recent Trades";
+    if (sub) sub.textContent = isLive ? "Real money · model context" : "Last 5 resolved";
+    if (card) card.classList.toggle("trade-recent-trades-live", Boolean(isLive));
+}
+
+function renderLiveAccountStrip(balancePayload, statsPayload) {
+    const strip = document.getElementById("live-account-strip");
+    const balanceEl = document.getElementById("live-kalshi-balance");
+    const netEl = document.getElementById("live-net-pnl");
+    if (!strip) return;
+    strip.style.display = "";
+    if (balanceEl) {
+        const bal = Number(balancePayload?.balance_dollars);
+        balanceEl.textContent = Number.isFinite(bal) ? `$${bal.toFixed(2)}` : (balancePayload?.message || "—");
+    }
+    if (netEl && statsPayload) {
+        const net = Number(statsPayload.net_pnl || 0);
+        netEl.textContent = `${net >= 0 ? "+" : "-"}$${Math.abs(net).toFixed(2)}`;
+        netEl.classList.remove("text-success", "text-danger");
+        netEl.classList.add(net >= 0 ? "text-success" : "text-danger");
+    }
+}
+
+function hideLiveAccountStrip() {
+    const strip = document.getElementById("live-account-strip");
+    if (strip) strip.style.display = "none";
+}
+
+function renderRecentTradesList(trades, mode = "paper") {
     const ul = document.getElementById("recent-trades-list");
     const empty = document.getElementById("recent-trades-empty");
     if (!ul) return;
     ul.querySelectorAll("li.trade-recent-row").forEach((row) => row.remove());
+    const isLive = mode === "live";
     const list = Array.isArray(trades) ? trades.slice(0, 5) : [];
-    if (empty) empty.style.display = list.length ? "none" : "block";
+    if (empty) {
+        empty.style.display = list.length ? "none" : "block";
+        empty.textContent = isLive ? "No live trades yet" : "No resolved trades yet";
+    }
     list.forEach((t) => {
         const li = document.createElement("li");
-        li.className = "trade-recent-row";
+        li.className = isLive ? "trade-recent-row trade-recent-live" : "trade-recent-row";
         const side = String(t.side || "").toUpperCase();
+        const main = document.createElement("div");
+        main.className = "trade-recent-main";
+
         const sideEl = document.createElement("span");
         sideEl.className = `trade-recent-side ${side === "YES" ? "yes" : "no"}`;
         sideEl.textContent = side === "NO" ? "NO" : "YES";
+
+        if (isLive) {
+            const liveBadge = document.createElement("span");
+            liveBadge.className = "trade-recent-live-badge";
+            liveBadge.textContent = "LIVE";
+            main.appendChild(sideEl);
+            main.appendChild(liveBadge);
+        } else {
+            main.appendChild(sideEl);
+        }
+
         const tickEl = document.createElement("span");
         tickEl.className = "trade-recent-ticker";
         tickEl.setAttribute("title", String(t.ticker || ""));
-        tickEl.textContent = truncateTicker(t.ticker || "", 20);
+        tickEl.textContent = truncateTicker(t.ticker || "", isLive ? 16 : 20);
+
         const priceEl = document.createElement("span");
         priceEl.className = "trade-recent-prices";
         const ep = Number(t.entry_price);
         const xp = Number(t.exit_price);
-        priceEl.textContent = `${Number.isFinite(ep) ? ep.toFixed(3) : "—"}→${Number.isFinite(xp) ? xp.toFixed(3) : "—"}`;
-        const pnl = Number(t.realized_pnl);
-        const pnlEl = document.createElement("span");
-        pnlEl.className = `trade-recent-pnl ${Number.isFinite(pnl) && pnl >= 0 ? "text-success" : "text-danger"}`;
-        pnlEl.textContent = Number.isFinite(pnl) ? `${pnl >= 0 ? "+" : ""}$${Math.abs(pnl).toFixed(2)}` : "—";
+        const contracts = Number(t.contracts);
+        if (isLive) {
+            const cost = Number(t.cost_dollars);
+            const contractText = Number.isFinite(contracts) ? `${contracts.toFixed(0)}@` : "";
+            const priceText = Number.isFinite(ep) ? ep.toFixed(2) : "—";
+            const costText = Number.isFinite(cost) ? ` $${cost.toFixed(2)}` : "";
+            priceEl.textContent = `${contractText}${priceText}${costText}`;
+        } else {
+            priceEl.textContent = `${Number.isFinite(ep) ? ep.toFixed(3) : "—"}→${Number.isFinite(xp) ? xp.toFixed(3) : "—"}`;
+        }
+
+        const statusEl = document.createElement("span");
+        if (isLive) {
+            const failed = t.order_status === "failed" || !t.kalshi_order_id;
+            const open = !failed && !t.resolved;
+            statusEl.className = "trade-recent-status";
+            if (failed) {
+                statusEl.classList.add("failed");
+                statusEl.textContent = "Failed";
+            } else if (open) {
+                statusEl.classList.add("open");
+                statusEl.textContent = "Open";
+            } else {
+                const pnl = Number(t.realized_pnl);
+                statusEl.className = `trade-recent-pnl ${Number.isFinite(pnl) && pnl >= 0 ? "text-success" : "text-danger"}`;
+                statusEl.textContent = Number.isFinite(pnl) ? `${pnl >= 0 ? "+" : ""}$${Math.abs(pnl).toFixed(2)}` : "—";
+            }
+        } else {
+            const pnl = Number(t.realized_pnl);
+            statusEl.className = `trade-recent-pnl ${Number.isFinite(pnl) && pnl >= 0 ? "text-success" : "text-danger"}`;
+            statusEl.textContent = Number.isFinite(pnl) ? `${pnl >= 0 ? "+" : ""}$${Math.abs(pnl).toFixed(2)}` : "—";
+        }
+
         const checkEl = document.createElement("span");
         checkEl.className = "trade-recent-check";
-        checkEl.textContent = Number.isFinite(pnl) && pnl >= 0 ? "✓" : "✗";
-        li.append(sideEl, tickEl, priceEl, pnlEl, checkEl);
+        if (isLive) {
+            const failed = t.order_status === "failed" || !t.kalshi_order_id;
+            if (failed) checkEl.textContent = "!";
+            else if (!t.resolved) checkEl.textContent = "…";
+            else {
+                const pnl = Number(t.realized_pnl);
+                checkEl.textContent = Number.isFinite(pnl) && pnl >= 0 ? "✓" : "✗";
+            }
+        } else {
+            const pnl = Number(t.realized_pnl);
+            checkEl.textContent = Number.isFinite(pnl) && pnl >= 0 ? "✓" : "✗";
+        }
+
+        main.append(tickEl, priceEl, statusEl, checkEl);
+        li.appendChild(main);
+
+        if (isLive) {
+            const modelLine = document.createElement("p");
+            modelLine.className = "trade-recent-model-line";
+            modelLine.innerHTML = liveTradeModelLine(t);
+            li.appendChild(modelLine);
+            if (t.error_detail) {
+                const errLine = document.createElement("p");
+                errLine.className = "trade-recent-model-line text-danger";
+                errLine.textContent = String(t.error_detail);
+                li.appendChild(errLine);
+            }
+        }
+
         ul.appendChild(li);
     });
 }
 
 async function fetchDashboardRecentTrades() {
+    const settings = await apiFetch("/api/settings", { headers: { Accept: "application/json" } });
+    const liveOn = settings?.live_trading_enabled === "true";
+    state.liveTradingEnabled = liveOn;
+    updateRecentTradesHeader(liveOn);
+
+    if (liveOn) {
+        const [trades, stats, balance] = await Promise.all([
+            apiFetch("/api/live/trades?limit=20", { headers: { Accept: "application/json" } }),
+            apiFetch("/api/live/stats", { headers: { Accept: "application/json" } }),
+            apiFetch("/api/live/balance", { headers: { Accept: "application/json" } }),
+        ]);
+        renderRecentTradesList(Array.isArray(trades) ? trades : [], "live");
+        renderLiveAccountStrip(balance, stats);
+        return;
+    }
+
+    hideLiveAccountStrip();
     const data = await apiFetch("/api/paper/history?limit=5", { headers: { Accept: "application/json" } });
     if (!data) return;
-    renderRecentTradesList(data.trades);
+    renderRecentTradesList(data.trades, "paper");
 }
 
 async function refreshDashboardIntelBlocks() {
-    const [regionsPayload, settings, historyPayload, signalsPayload, metricsPayload] = await Promise.all([
+    const settings = await apiFetch("/api/settings", { headers: { Accept: "application/json" } });
+    const liveOn = settings?.live_trading_enabled === "true";
+    state.liveTradingEnabled = liveOn;
+    updateRecentTradesHeader(liveOn);
+
+    const [regionsPayload, signalsPayload, metricsPayload, historyPayload, liveTradesPayload, liveStatsPayload] = await Promise.all([
         apiFetch("/api/analytics/agreement-regions", { headers: { Accept: "application/json" } }),
-        apiFetch("/api/settings", { headers: { Accept: "application/json" } }),
-        apiFetch("/api/paper/history?limit=100", { headers: { Accept: "application/json" } }),
         apiFetch("/api/signals?limit=100", { headers: { Accept: "application/json" } }),
         apiFetch("/api/metrics", { headers: { Accept: "application/json" } }),
+        liveOn
+            ? Promise.resolve(null)
+            : apiFetch("/api/paper/history?limit=100", { headers: { Accept: "application/json" } }),
+        liveOn
+            ? apiFetch("/api/live/trades?limit=100", { headers: { Accept: "application/json" } })
+            : Promise.resolve(null),
+        liveOn
+            ? apiFetch("/api/live/stats", { headers: { Accept: "application/json" } })
+            : Promise.resolve(null),
     ]);
+
     if (regionsPayload?.regions) {
         renderBestRegionCell(pickBestAgreementRegion(regionsPayload.regions));
     }
     if (settings) {
         renderActiveModeFromSettings(settings);
     }
-    if (historyPayload?.trades) {
+    if (liveOn) {
+        const liveTrades = Array.isArray(liveTradesPayload) ? liveTradesPayload : [];
+        renderTodaysTradesCell(liveTrades, { isLive: true, liveStats: liveStatsPayload || {} });
+        renderSignalRateCard(signalsPayload?.signals || [], liveTrades, metricsPayload || {});
+    } else if (historyPayload?.trades) {
         renderTodaysTradesCell(historyPayload.trades);
+        renderSignalRateCard(signalsPayload?.signals || [], historyPayload.trades, metricsPayload || {});
     }
-    renderSignalRateCard(signalsPayload?.signals || [], historyPayload?.trades || [], metricsPayload || {});
 }
 
 function showToast(message, variant = "success", durationMs = 3000) {

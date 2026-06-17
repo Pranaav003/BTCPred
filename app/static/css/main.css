@@ -2178,6 +2178,90 @@ a {
     padding: var(--space-2) 0;
 }
 
+.live-account-strip {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: var(--space-2);
+    padding: var(--space-2);
+    border-radius: 8px;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.22);
+}
+
+.live-account-strip-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.8rem;
+}
+
+.live-account-balance {
+    font-weight: 600;
+}
+
+.trade-recent-live-badge {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 2px 5px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    background: rgba(239, 68, 68, 0.22);
+    color: #fca5a5;
+}
+
+.trade-recent-row.trade-recent-live {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.trade-recent-row.trade-recent-live:last-child {
+    border-bottom: none;
+}
+
+.trade-recent-main {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.trade-recent-model-line {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+    padding-left: 2px;
+    word-break: break-word;
+}
+
+.trade-recent-model-line .model-val {
+    color: #fbbf24;
+}
+
+.trade-recent-model-line .market-val {
+    color: #60a5fa;
+}
+
+.trade-recent-status {
+    font-weight: 600;
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 0.8rem;
+}
+
+.trade-recent-status.open {
+    color: #fbbf24;
+}
+
+.trade-recent-status.failed {
+    color: #f87171;
+}
+
 .signal-intel-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;

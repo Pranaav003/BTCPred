@@ -9,12 +9,13 @@ import shutil
 import zipfile
 import tempfile
 from pathlib import Path
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 
 from flask import Blueprint, Response, jsonify, request, send_file, stream_with_context
 import sklearn
 from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import joinedload
 
 from app.db_helpers import export_training_data, get_probability_history, get_recent_signals, get_signal_metrics
 from app.feature_engineering import get_live_snapshot
@@ -1065,38 +1066,72 @@ def live_balance():
     })
 
 
+def _serialize_live_trade(trade: LiveTrade) -> dict:
+    """Serialize a live trade with linked signal context for dashboard display."""
+    sig = trade.signal
+    return {
+        "id": trade.id,
+        "ticker": trade.ticker,
+        "side": trade.side,
+        "contracts": trade.contracts,
+        "entry_price": trade.entry_price,
+        "cost_dollars": trade.cost_dollars,
+        "kalshi_order_id": trade.kalshi_order_id,
+        "order_status": trade.order_status,
+        "entry_at": _utc_iso_z(trade.entry_at),
+        "resolved": trade.resolved,
+        "resolved_at": _utc_iso_z(trade.resolved_at),
+        "exit_price": trade.exit_price,
+        "realized_pnl": trade.realized_pnl,
+        "outcome": trade.outcome,
+        "p_market": trade.p_market_at_entry if trade.p_market_at_entry is not None else (sig.p_market if sig else None),
+        "p_raw": trade.p_raw_at_entry if trade.p_raw_at_entry is not None else (sig.p_raw if sig else None),
+        "agreement_region": trade.agreement_region or (sig.agreement_region if sig else None),
+        "signal_text": sig.signal if sig else None,
+        "signal_reason": sig.reason if sig else None,
+        "seconds_to_close_at_entry": sig.seconds_to_close if sig else None,
+        "error_detail": trade.error_detail,
+        "is_live": True,
+    }
+
+
+def _placed_live_trades_query():
+    """Live trades that actually reached Kalshi (exclude failed API placements)."""
+    return LiveTrade.query.filter(
+        LiveTrade.order_status == "placed",
+        LiveTrade.kalshi_order_id.isnot(None),
+    )
+
+
 @api_bp.route("/live/trades", methods=["GET"])
 def live_trades_list():
     limit = min(int(request.args.get("limit", 50)), 200)
-    trades = LiveTrade.query.order_by(LiveTrade.entry_at.desc()).limit(limit).all()
-    result = []
-    for trade in trades:
-        entry_at = trade.entry_at
-        result.append({
-            "id": trade.id,
-            "ticker": trade.ticker,
-            "side": trade.side,
-            "contracts": trade.contracts,
-            "entry_price": trade.entry_price,
-            "cost_dollars": trade.cost_dollars,
-            "kalshi_order_id": trade.kalshi_order_id,
-            "order_status": trade.order_status,
-            "entry_at": _utc_iso_z(entry_at),
-            "resolved": trade.resolved,
-            "exit_price": trade.exit_price,
-            "realized_pnl": trade.realized_pnl,
-            "outcome": trade.outcome,
-            "p_market": trade.p_market_at_entry,
-            "p_raw": trade.p_raw_at_entry,
-            "agreement_region": trade.agreement_region,
-            "error_detail": trade.error_detail,
-        })
-    return jsonify(result)
+    trades = (
+        LiveTrade.query.options(joinedload(LiveTrade.signal))
+        .order_by(LiveTrade.entry_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return jsonify([_serialize_live_trade(trade) for trade in trades])
 
 
 @api_bp.route("/live/stats", methods=["GET"])
 def live_stats():
-    all_trades = LiveTrade.query.filter_by(resolved=True).all()
+    today_start = datetime.combine(
+        datetime.now(timezone.utc).date(),
+        datetime.min.time(),
+        tzinfo=timezone.utc,
+    )
+    today_trades = (
+        _placed_live_trades_query()
+        .filter(LiveTrade.entry_at >= today_start)
+        .all()
+    )
+    today_resolved = [t for t in today_trades if t.resolved]
+    today_open = [t for t in today_trades if not t.resolved]
+    today_net = sum(t.realized_pnl for t in today_resolved if t.realized_pnl is not None)
+
+    all_trades = _placed_live_trades_query().filter(LiveTrade.resolved.is_(True)).all()
     if not all_trades:
         return jsonify({
             "total": 0,
@@ -1106,6 +1141,10 @@ def live_stats():
             "avg_win": None,
             "avg_loss": None,
             "net_pnl": 0,
+            "today_count": len(today_trades),
+            "today_open": len(today_open),
+            "today_resolved": len(today_resolved),
+            "today_net_pnl": round(today_net, 2),
             "configured": is_configured(),
         })
 
@@ -1123,6 +1162,10 @@ def live_stats():
         "avg_win": round(avg_win, 2),
         "avg_loss": round(avg_loss, 2),
         "net_pnl": round(net, 2),
+        "today_count": len(today_trades),
+        "today_open": len(today_open),
+        "today_resolved": len(today_resolved),
+        "today_net_pnl": round(today_net, 2),
         "configured": is_configured(),
     })
 
