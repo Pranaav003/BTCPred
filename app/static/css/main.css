@@ -1687,7 +1687,16 @@ a {
     min-height: 360px;
 }
 
-.monitor-grid {
+.monitor-live-trades-card .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.monitor-live-strip {
+    margin-bottom: var(--space-2);
+}
     display: flex;
     flex-direction: column;
     gap: var(--space-4);

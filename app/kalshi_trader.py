@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
 import requests
 
@@ -30,13 +31,18 @@ def _parse_fp_dollars(value) -> float | None:
 
 
 def _parse_order_fill(order_payload: dict) -> dict:
-    """Extract fill count and cost from a Kalshi order response."""
+    """Extract fill count and cost from a Kalshi order response (V1 or V2)."""
     if not isinstance(order_payload, dict):
         order_payload = {}
     fill_count = _parse_fp_count(
         order_payload.get("fill_count_fp") or order_payload.get("fill_count")
     )
-    fill_cost_dollars = _parse_fp_dollars(order_payload.get("taker_fill_cost_dollars"))
+    avg_price = _parse_fp_dollars(order_payload.get("average_fill_price"))
+    fill_cost_dollars = None
+    if avg_price is not None and fill_count > 0:
+        fill_cost_dollars = round(avg_price * fill_count, 4)
+    if fill_cost_dollars is None:
+        fill_cost_dollars = _parse_fp_dollars(order_payload.get("taker_fill_cost_dollars"))
     if fill_cost_dollars is None and order_payload.get("taker_fill_cost") is not None:
         try:
             fill_cost_dollars = float(order_payload["taker_fill_cost"]) / 100.0
@@ -45,6 +51,7 @@ def _parse_order_fill(order_payload: dict) -> dict:
     return {
         "fill_count": fill_count,
         "fill_cost_dollars": fill_cost_dollars,
+        "average_fill_price": avg_price,
         "status": order_payload.get("status"),
     }
 
@@ -79,7 +86,7 @@ def place_order(
     count: int,
     price_cents: int,
 ) -> dict:
-    """Place a limit IOC buy order on Kalshi."""
+    """Place a limit IOC order on Kalshi (V2 events API)."""
     if not is_configured():
         return {"error": "API keys not configured"}
     if count < 1:
@@ -87,22 +94,27 @@ def place_order(
     if not (1 <= price_cents <= 99):
         return {"error": f"Invalid price {price_cents}c — must be 1-99"}
 
-    path = "/portfolio/orders"
     normalized_side = str(side).lower()
-    body: dict = {
-        "ticker": ticker,
-        "action": "buy",
-        "side": normalized_side,
-        "type": "limit",
-        "count": int(count),
-        "time_in_force": "immediate_or_cancel",
-    }
     if normalized_side == "yes":
-        body["yes_price"] = int(price_cents)
+        book_side = "bid"
+        price_str = f"{price_cents / 100.0:.4f}"
     elif normalized_side == "no":
-        body["no_price"] = int(price_cents)
+        book_side = "ask"
+        yes_price = 1.0 - (price_cents / 100.0)
+        price_str = f"{yes_price:.4f}"
     else:
         return {"error": f"Invalid side {side!r} — must be yes or no"}
+
+    path = "/portfolio/events/orders"
+    body = {
+        "ticker": ticker,
+        "client_order_id": str(uuid.uuid4()),
+        "side": book_side,
+        "count": f"{int(count)}.00",
+        "price": price_str,
+        "time_in_force": "immediate_or_cancel",
+        "self_trade_prevention_type": "taker_at_cross",
+    }
     headers = get_kalshi_headers("POST", path)
     if not headers:
         return {"error": "Failed to generate auth headers"}
@@ -125,13 +137,12 @@ def place_order(
             fill_count = int(fill["fill_count"]) if fill["fill_count"] >= 1 else 0
             if fill_count < 1:
                 logger.warning(
-                    "LIVE ORDER UNFILLED: %s %s contracts on %s at %sc — order_id=%s status=%s",
+                    "LIVE ORDER UNFILLED: %s %s contracts on %s at %s — order_id=%s",
                     side.upper(),
                     count,
                     ticker,
-                    price_cents,
+                    price_str,
                     order_id,
-                    fill.get("status"),
                 )
                 return {
                     "success": False,
@@ -142,11 +153,11 @@ def place_order(
                     "order": data,
                 }
             logger.info(
-                "LIVE ORDER PLACED: %s %s filled on %s at %sc — order_id=%s",
+                "LIVE ORDER PLACED: %s %s filled on %s at %s — order_id=%s",
                 side.upper(),
                 fill_count,
                 ticker,
-                price_cents,
+                price_str,
                 order_id,
             )
             return {
@@ -155,15 +166,16 @@ def place_order(
                 "order_id": order_id,
                 "fill_count": fill_count,
                 "fill_cost_dollars": fill["fill_cost_dollars"],
+                "average_fill_price": fill["average_fill_price"],
             }
         logger.error(
-            "LIVE ORDER FAILED: %s — %s (ticker=%s, side=%s, count=%s, price=%sc)",
+            "LIVE ORDER FAILED: %s — %s (ticker=%s, side=%s, count=%s, price=%s)",
             response.status_code,
             response.text[:300],
             ticker,
             side,
             count,
-            price_cents,
+            price_str,
         )
         return {
             "error": f"Order failed: {response.status_code}",

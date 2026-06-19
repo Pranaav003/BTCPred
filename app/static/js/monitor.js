@@ -738,7 +738,17 @@ window.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("scheduler-start-btn")?.addEventListener("click", () => mAction("/api/scheduler/start", "Scheduler started"));
     document.getElementById("scheduler-stop-btn")?.addEventListener("click", () => mAction("/api/scheduler/stop", "Scheduler stopped"));
     document.getElementById("resolution-trigger-btn")?.addEventListener("click", () => mAction("/api/resolution/trigger", "Resolution triggered"));
+    document.getElementById("live-trades-reconcile-btn")?.addEventListener("click", async () => {
+        const res = await mApiFetch("/api/live/reconcile", { method: "POST", headers: { Accept: "application/json" } });
+        if (res?.reconciled != null) {
+            mShowToast(`Synced ${res.reconciled} live trade(s) from Kalshi`, "success");
+            await mFetchLiveTrades();
+        } else {
+            mShowToast("Kalshi sync failed", "error");
+        }
+    });
     mWireDataCollectionExport();
+    mFetchLiveTrades();
     await mFetchPositions();
     window.setTimeout(() => mFetchPortfolio(), 1000);
     window.setTimeout(() => mFetchHistory(), 2000);
@@ -762,33 +772,91 @@ window.addEventListener("DOMContentLoaded", async () => {
     }, MONITOR_POLL_INTERVALS.vslow);
     setInterval(() => {
         mFetchLiveTrades();
-    }, MONITOR_POLL_INTERVALS.normal);
+    }, MONITOR_POLL_INTERVALS.fast);
     mFetchLiveTrades();
 });
 
+function mLiveOutcomeHtml(row) {
+    if (row.order_status === "failed") {
+        return '<span class="text-danger">✗ Failed</span>';
+    }
+    if (row.order_status === "unfilled" || row.outcome === "unfilled") {
+        return '<span class="text-muted">— Unfilled</span>';
+    }
+    if (!row.resolved) {
+        return `<span class="badge badge-warning">${row.order_status || "open"}</span>`;
+    }
+    if (row.outcome === "correct") {
+        return '<span class="text-success">✓ Win</span>';
+    }
+    if (row.outcome === "wrong") {
+        return '<span class="text-danger">✗ Loss</span>';
+    }
+    return '<span class="text-muted">—</span>';
+}
+
+function mLivePnlHtml(row) {
+    if (row.order_status === "failed" || row.order_status === "unfilled" || row.outcome === "unfilled") {
+        return '<p class="text-muted mono">—</p>';
+    }
+    if (!row.resolved) {
+        return '<p class="text-warning mono">Open</p>';
+    }
+    const pnl = Number(row.realized_pnl || 0);
+    const pnlCls = pnl >= 0 ? "text-success" : "text-danger";
+    return `<p class="${pnlCls} mono">${pnl >= 0 ? "+" : "-"}$${Math.abs(pnl).toFixed(2)}</p>`;
+}
+
+function mLiveModelLine(row) {
+    const pRaw = Number(row.p_raw);
+    const pMarket = Number(row.p_market);
+    const parts = [];
+    if (Number.isFinite(pRaw)) parts.push(`Model ${(pRaw * 100).toFixed(1)}%`);
+    if (Number.isFinite(pMarket)) parts.push(`Market ${(pMarket * 100).toFixed(1)}%`);
+    if (row.agreement_region) parts.push(String(row.agreement_region).replaceAll("_", " "));
+    if (row.signal_reason) parts.push(String(row.signal_reason));
+    return parts.length ? parts.join(" · ") : "";
+}
+
 async function mFetchLiveTrades() {
-    const [trades, stats, settings] = await Promise.all([
+    const [trades, stats, balance, settings] = await Promise.all([
         mApiFetch("/api/live/trades?limit=50", { headers: { Accept: "application/json" } }),
         mApiFetch("/api/live/stats", { headers: { Accept: "application/json" } }),
+        mApiFetch("/api/live/balance", { headers: { Accept: "application/json" } }),
         mApiFetch("/api/settings", { headers: { Accept: "application/json" } }),
     ]);
 
     const section = document.getElementById("live-trades-section");
     const list = document.getElementById("live-trades-list");
     const summary = document.getElementById("live-trades-summary");
+    const balanceEl = document.getElementById("monitor-live-balance");
+    const netEl = document.getElementById("monitor-live-net-pnl");
+    const strip = document.getElementById("monitor-live-account-strip");
     if (!section || !list) return;
 
-    const liveEnabled = (settings?.live_trading_enabled || "false") === "true";
     const tradeRows = Array.isArray(trades) ? trades : [];
-    const showSection = liveEnabled || tradeRows.length > 0;
-    section.style.display = showSection ? "" : "none";
-    if (!showSection) return;
+    const liveEnabled = (settings?.live_trading_enabled || "false") === "true";
+    const keysConfigured = balance?.configured === true;
+
+    section.style.display = (liveEnabled || keysConfigured || tradeRows.length > 0) ? "" : "none";
+    if (strip) strip.style.display = (liveEnabled || keysConfigured) ? "" : "none";
+
+    if (balanceEl) {
+        const bal = Number(balance?.balance_dollars);
+        balanceEl.textContent = Number.isFinite(bal) ? `$${bal.toFixed(2)}` : (balance?.message || "—");
+    }
+    if (netEl && stats) {
+        const net = Number(stats.net_pnl || 0);
+        netEl.textContent = `${net >= 0 ? "+" : "-"}$${Math.abs(net).toFixed(2)}`;
+        netEl.classList.remove("text-success", "text-danger");
+        netEl.classList.add(net >= 0 ? "text-success" : "text-danger");
+    }
 
     if (summary && stats) {
         const winRate = stats.win_rate != null ? `${(stats.win_rate * 100).toFixed(1)}%` : "--";
         const net = Number(stats.net_pnl || 0);
         const netCls = net >= 0 ? "text-success" : "text-danger";
-        summary.innerHTML = `${stats.total || 0} trades · ${stats.wins || 0} wins · ${stats.losses || 0} losses · Net: <span class="${netCls}">${net >= 0 ? "+" : "-"}$${Math.abs(net).toFixed(2)}</span> · Win rate: ${winRate}`;
+        summary.innerHTML = `${stats.total || 0} filled · ${stats.wins || 0} wins · ${stats.losses || 0} losses · Net: <span class="${netCls}">${net >= 0 ? "+" : "-"}$${Math.abs(net).toFixed(2)}</span> · Win rate: ${winRate}`;
     }
 
     if (!tradeRows.length) {
@@ -802,21 +870,18 @@ async function mFetchLiveTrades() {
 
     list.innerHTML = tradeRows.map((row) => {
         const side = String(row.side || "YES");
-        const pnl = Number(row.realized_pnl || 0);
-        const pnlCls = row.resolved ? (pnl >= 0 ? "text-success" : "text-danger") : "text-muted";
-        const pnlText = row.resolved
-            ? `${pnl >= 0 ? "+" : "-"}$${Math.abs(pnl).toFixed(2)}`
-            : "Open";
-        const outcome = row.resolved
-            ? (row.outcome === "correct"
-                ? '<span class="text-success">✓ Correct</span>'
-                : '<span class="text-danger">✗ Wrong</span>')
-            : `<span class="badge badge-warning">${row.order_status || "placed"}</span>`;
-        const exitLine = row.resolved
+        const modelLine = mLiveModelLine(row);
+        const exitLine = row.resolved && row.order_status === "placed"
             ? `Entry ${Number(row.entry_price || 0).toFixed(3)} → Exit ${Number(row.exit_price || 0).toFixed(3)}`
             : `Entry ${Number(row.entry_price || 0).toFixed(3)} · ${row.order_status || "placed"}`;
         const orderId = row.kalshi_order_id
             ? `<p class="text-muted mono" style="font-size:0.75rem;">order: ${row.kalshi_order_id}</p>`
+            : "";
+        const errLine = row.error_detail
+            ? `<p class="text-danger" style="font-size:0.75rem;">${row.error_detail}</p>`
+            : "";
+        const modelHtml = modelLine
+            ? `<p class="text-muted" style="font-size:0.75rem;margin-top:4px;">${modelLine}</p>`
             : "";
         return `
             <div class="monitor-activity-row">
@@ -824,12 +889,13 @@ async function mFetchLiveTrades() {
                 <div class="monitor-activity-main">
                     <p class="mono">${row.ticker || "--"} · ${Number(row.contracts || 0).toFixed(0)} contracts @ ${Number(row.entry_price || 0).toFixed(3)}</p>
                     <p class="text-muted">${exitLine} · ${mFormatSignalTime(row.entry_at)} · Cost ${mToMoney(row.cost_dollars)}</p>
+                    ${modelHtml}
                     ${orderId}
-                    ${row.error_detail ? `<p class="text-danger">${row.error_detail}</p>` : ""}
+                    ${errLine}
                 </div>
                 <div class="monitor-activity-pnl">
-                    <p class="${pnlCls} mono">${pnlText}</p>
-                    <p>${outcome}</p>
+                    ${mLivePnlHtml(row)}
+                    <p>${mLiveOutcomeHtml(row)}</p>
                 </div>
             </div>
         `;

@@ -193,6 +193,10 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
             if order_result.get("success"):
                 filled_contracts = int(order_result.get("fill_count") or contracts)
                 fill_cost = order_result.get("fill_cost_dollars")
+                avg_fill = order_result.get("average_fill_price")
+                if avg_fill is not None:
+                    entry_price = float(avg_fill)
+                    price_cents = max(1, min(99, int(round(entry_price * 100))))
                 if fill_cost is not None:
                     actual_cost = float(fill_cost)
                 else:

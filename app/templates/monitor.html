@@ -70,6 +70,27 @@
 
     <div class="monitor-banner-stack" id="monitor-banner-stack" aria-live="polite"></div>
 
+    <article class="card monitor-trade-activity-card monitor-live-trades-card" id="live-trades-section">
+        <header class="panel-head">
+            <h3>Live Trades (Real Money) <span class="badge badge-danger">LIVE</span></h3>
+            <button type="button" class="btn-ghost" id="live-trades-reconcile-btn">Sync from Kalshi</button>
+        </header>
+        <div class="live-account-strip monitor-live-strip" id="monitor-live-account-strip">
+            <div class="live-account-strip-row">
+                <span class="text-muted">Kalshi balance</span>
+                <span class="mono live-account-balance" id="monitor-live-balance">--</span>
+            </div>
+            <div class="live-account-strip-row">
+                <span class="text-muted">Live net (all time)</span>
+                <span class="mono" id="monitor-live-net-pnl">--</span>
+            </div>
+        </div>
+        <p class="mono" id="live-trades-summary">0 trades · 0 wins · 0 losses · Net: +$0.00 · Win rate: --</p>
+        <div class="monitor-activity-feed" id="live-trades-list">
+            <p class="text-muted">Loading live trades…</p>
+        </div>
+    </article>
+
     <article class="card monitor-open-positions-card">
         <header class="panel-head">
             <h3>Open Positions <span class="badge badge-neutral" id="open-positions-count">0</span></h3>
@@ -92,16 +113,6 @@
             <span class="text-muted mono" id="trade-activity-range">Showing 0-0 of 0 trades</span>
             <button type="button" class="btn-ghost" id="trade-activity-prev">Prev</button>
             <button type="button" class="btn-ghost" id="trade-activity-next">Next</button>
-        </div>
-    </article>
-
-    <article class="card monitor-trade-activity-card" id="live-trades-section" style="display:none;">
-        <header class="panel-head">
-            <h3>Live Trades (Real Money) <span class="badge badge-danger">LIVE</span></h3>
-        </header>
-        <p class="mono" id="live-trades-summary">0 trades · 0 wins · 0 losses · Net: +$0.00 · Win rate: --</p>
-        <div class="monitor-activity-feed" id="live-trades-list">
-            <p class="text-muted">No live trades yet.</p>
         </div>
     </article>
 
