@@ -773,7 +773,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     setInterval(() => {
         mFetchLiveTrades();
     }, MONITOR_POLL_INTERVALS.fast);
-    mFetchLiveTrades();
 });
 
 function mLiveOutcomeHtml(row) {

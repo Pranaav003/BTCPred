@@ -144,7 +144,11 @@ def _merged_training_row(row) -> dict[str, object]:
 @api_bp.route("/health")
 def health():
     """Instant liveness for load balancers — no DB or model work."""
-    return jsonify({"status": "ok", "ts": time.time()}), 200
+    return jsonify({
+        "status": "ok",
+        "ts": time.time(),
+        "commit": os.getenv("RENDER_GIT_COMMIT", "local"),
+    }), 200
 
 
 @api_bp.route("/debug/market", methods=["GET"])
@@ -309,8 +313,11 @@ def resolution_summary():
 
 @api_bp.route("/resolution/trigger", methods=["POST"])
 def resolution_trigger():
+    from app.resolver import resolve_live_trades
+
     resolved_count = resolve_pending_markets()
-    return jsonify({"resolved_count": resolved_count})
+    live_resolved = resolve_live_trades()
+    return jsonify({"resolved_count": resolved_count, "live_resolved": live_resolved})
 
 
 @api_bp.route("/signals/<int:signal_id>", methods=["GET"])

@@ -36,12 +36,10 @@ CANDLE_CACHE_TTL = 12.0
 TRADE_CACHE_TTL = 10.0
 _MAX_CANDLE_CACHE_ENTRIES = 10
 _MAX_TRADE_CACHE_ENTRIES = 20
-# NOTE: The following endpoints require authentication (API key):
-# - GET /markets/{ticker}/orderbook
-# - POST /portfolio/orders (order placement)
+# Authenticated endpoints (see kalshi_trader.py):
+# - POST /portfolio/events/orders (V2 order placement)
 # - GET /portfolio/balance
-# These are not implemented until KALSHI_API_KEY is configured.
-# See .env.example for KALSHI_API_KEY and KALSHI_API_SECRET.
+# - GET /portfolio/settlements
 
 
 def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -> dict | None:

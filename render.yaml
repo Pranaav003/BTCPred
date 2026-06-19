@@ -3,7 +3,7 @@ services:
     name: kalshi-signal
     env: python
     plan: starter
-    autoDeploy: false
+    autoDeploy: true
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn "app:create_app()" -c gunicorn.conf.py
     envVars:

@@ -177,7 +177,7 @@ def resolve_live_trades() -> int:
     trades = (
         LiveTrade.query.filter(
             LiveTrade.kalshi_order_id.isnot(None),
-            LiveTrade.order_status.in_(("placed", "unfilled")),
+            LiveTrade.order_status != "failed",
         )
         .order_by(LiveTrade.entry_at.asc())
         .all()

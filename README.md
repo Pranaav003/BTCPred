@@ -45,7 +45,9 @@ The sklearn version must match in both environments. If it differs, retrain the 
    - `SECRET_KEY=[random string]`
    - (`DATABASE_URL` is set automatically from the database)
 6. Deploy. App runs at your Render URL.
-7. To retrain model:
+7. **Auto-deploy:** `render.yaml` sets `autoDeploy: true`. If your Render service still uses manual deploy, click **Manual Deploy → Deploy latest commit** after each push, or add a `RENDER_API_KEY` GitHub secret (see `.github/workflows/render-deploy.yml`).
+8. Verify deploy: `curl https://btcpred.onrender.com/api/health` should include a `commit` field matching your latest git SHA.
+9. To retrain model:
    - Run `python train_raw_model.py` locally
    - `git add raw_feature_model.pkl`
    - `git commit -m "retrain model"`
