@@ -170,7 +170,12 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 )
                 return
 
-            price_cents = max(1, min(99, int(entry_price * 100)))
+            if side == "yes":
+                raw_cents = round(result.p_market * 100)
+                price_cents = max(1, min(99, raw_cents + 2))
+            else:
+                raw_cents = round((1.0 - result.p_market) * 100)
+                price_cents = max(1, min(99, raw_cents + 2))
             actual_cost = contracts * entry_price
 
             logger.info(
