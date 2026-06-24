@@ -61,7 +61,13 @@ def predict_proba_raw(feature_dict: dict) -> float:
     model = bundle["model"]
     features = bundle["features"]
 
-    ordered_values = [float(feature_dict.get(feature, 0.0) or 0.0) for feature in features]
+    ordered_values = []
+    for feature in features:
+        val = feature_dict.get(feature, 0.0)
+        if val is None or val == "":
+            logger.warning("Missing or empty feature '%s' — defaulting to 0.0", feature)
+            val = 0.0
+        ordered_values.append(float(val or 0.0))
     frame = pd.DataFrame([ordered_values], columns=features)
     proba_yes = model.predict_proba(frame)[:, 1][0]
     return float(proba_yes)

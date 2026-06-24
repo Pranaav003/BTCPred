@@ -9,6 +9,8 @@ import time
 
 logger = logging.getLogger(__name__)
 
+_cached_private_key = None
+
 TRADING_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 SIGN_PATH_PREFIX = "/trade-api/v2"
 
@@ -35,6 +37,9 @@ def _normalize_pem(pem: str) -> str:
 
 
 def get_private_key():
+    global _cached_private_key
+    if _cached_private_key is not None:
+        return _cached_private_key
     from cryptography.hazmat.backends import default_backend
     from cryptography.hazmat.primitives import serialization
 
@@ -42,11 +47,13 @@ def get_private_key():
     if not pem:
         return None
     try:
-        return serialization.load_pem_private_key(
+        key = serialization.load_pem_private_key(
             pem.encode(),
             password=None,
             backend=default_backend(),
         )
+        _cached_private_key = key
+        return key
     except Exception as exc:
         logger.error("Failed to load Kalshi private key: %s", exc)
         return None
