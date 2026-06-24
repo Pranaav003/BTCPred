@@ -5,6 +5,7 @@ import os
 
 import click
 from flask import Flask
+from flask_wtf.csrf import CSRFProtect
 from sqlalchemy import text
 
 from app.config import config_by_name
@@ -41,6 +42,7 @@ def create_app(config_name: str | None = None) -> Flask:
     app.config.from_object(config_by_name[selected_config])
 
     db.init_app(app)
+    csrf = CSRFProtect(app)
 
     # Import models after db initialization so metadata is registered.
     from app import models  # noqa: F401

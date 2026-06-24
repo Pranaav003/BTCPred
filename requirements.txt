@@ -12,3 +12,4 @@ joblib
 gunicorn
 psycopg2-binary
 cryptography
+flask-wtf==1.2.2
