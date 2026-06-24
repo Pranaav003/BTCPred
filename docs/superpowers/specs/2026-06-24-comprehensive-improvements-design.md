@@ -144,14 +144,13 @@ Add `pytest` with targeted tests for financial correctness (most critical paths)
 | Raise default agreement cutoff from 0.65 -> 0.70 | The 0.65 cutoff produces marginal signals. Higher cutoff filters weak signals. |
 | Disable volatility guard bypass for mispricing | In high-vol regimes, mispricing gaps are more likely noise. The bypass was designed for moderate-vol relative-value trades, not extreme conditions. |
 | Minimum confidence threshold for auto-trades | Require `confidence >= 0.35` before auto-trading. Currently any actionable signal auto-trades. |
-| Adaptive IOC pricing | Track fill rate. If < 50% fill, tighten spread cushion. If > 90%, widen for better prices. |
-| No-trade zone near cutoff | Add a 3-5% buffer: don't trade if `p_raw` is within 0.03-0.05 of the cutoff. These are the weakest signals. |
+| Adaptive IOC pricing | Track fill rate over last 20 orders. If < 50% fill, reduce spread cushion from +2c to +1c. If > 90% fill, increase from +2c to +3c. Persist fill rate in AppSettings. |
+| No-trade zone near cutoff | Add a configurable `cutoff_buffer` setting (default 0.05). Don't trade if `p_raw` is within `cutoff_buffer` of the yes_cutoff. These are the weakest signals. |
 
 #### 3.2.3 Code-Level Fixes
 
 1. **`MAX_MISPRICING_OVERRIDE_RISK`** (`signal_engine.py:14`): Change from 0.65 to 0.50. Currently hardcoded. Make it a DB setting (`max_mispricing_override_risk`) for runtime configurability.
 2. **Poll interval wiring** (`scheduler.py:517`): The scheduler ignores the DB `poll_interval` setting and hardcodes 30s. Either read `AppSettings.get("poll_interval_seconds")` or remove the UI control to avoid confusion.
-3. **`seconds_to_close` truncation** (`scheduler.py:378`): `int()` should be `math.ceil()` so 89.7s rounds to 90s instead of 89s.
 
 ### 3.3 Dashboard UX Improvements
 
