@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from datetime import datetime, timezone
@@ -133,7 +134,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 )
                 return
 
-            seconds_left = int(snapshot.get("seconds_to_close", 0) or 0)
+            seconds_left = math.ceil(float(snapshot.get("seconds_to_close", 0) or 0))
             if seconds_left < MIN_SECONDS_FOR_AUTO_TRADE:
                 logger.info(
                     "Live trade skipped: only %ss to close, minimum is %ss",
@@ -375,7 +376,7 @@ def poll_and_signal() -> None:
                             snapshot["market_ticker"],
                         )
                     else:
-                        seconds_left = int(snapshot.get("seconds_to_close", 0) or 0)
+                        seconds_left = math.ceil(float(snapshot.get("seconds_to_close", 0) or 0))
                         if seconds_left < MIN_SECONDS_FOR_AUTO_TRADE:
                             logger.info(
                                 "Auto-trade skipped: only %ss to close, minimum is %ss",
@@ -409,7 +410,7 @@ def poll_and_signal() -> None:
                                     price_ctx = _price_context_for_snapshot()
                                     snapshot_data = {
                                         "market_title": snapshot.get("market_title", "") or "",
-                                        "seconds_to_close": int(snapshot.get("seconds_to_close", 0) or 0),
+                                        "seconds_to_close": math.ceil(float(snapshot.get("seconds_to_close", 0) or 0)),
                                         "entry_bucket": int(snapshot.get("entry_bucket", 0) or 0),
                                         "p_market": float(snapshot.get("p_market", 0) or 0),
                                         "p_raw": float(snapshot.get("p_raw", 0) or 0),
