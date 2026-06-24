@@ -5,33 +5,13 @@ import os
 
 import click
 from flask import Flask
+from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
-from sqlalchemy import text
 
 from app.config import config_by_name
 from app.extensions import db
 from app.routes.api import api_bp
 from app.routes.dashboard import dashboard_bp
-
-
-def _ensure_signal_schema_columns(app: Flask) -> None:
-    """Backfill additive Signal columns for existing SQLite databases."""
-    if db.engine.dialect.name != "sqlite":
-        # SQLite-specific ALTER backfill; Postgres should use model-managed schema.
-        return
-    try:
-        existing = db.session.execute(text("PRAGMA table_info(signals)")).fetchall()
-        names = {row[1] for row in existing}
-        if "orderbook_mid" not in names:
-            db.session.execute(text("ALTER TABLE signals ADD COLUMN orderbook_mid FLOAT"))
-            app.logger.info("Added missing signals.orderbook_mid column")
-        if "orderbook_available" not in names:
-            db.session.execute(text("ALTER TABLE signals ADD COLUMN orderbook_available BOOLEAN DEFAULT 0"))
-            app.logger.info("Added missing signals.orderbook_available column")
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        app.logger.exception("Failed to ensure Signal schema columns")
 
 
 def create_app(config_name: str | None = None) -> Flask:
@@ -43,6 +23,7 @@ def create_app(config_name: str | None = None) -> Flask:
 
     db.init_app(app)
     csrf = CSRFProtect(app)
+    migrate = Migrate(app, db)
 
     # Import models after db initialization so metadata is registered.
     from app import models  # noqa: F401
@@ -50,7 +31,6 @@ def create_app(config_name: str | None = None) -> Flask:
 
     with app.app_context():
         db.create_all()
-        _ensure_signal_schema_columns(app)
         seed_default_settings()
         # Scheduler starts automatically; auto-trade requires explicit user activation for safety.
         from app.models import AppSettings
