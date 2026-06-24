@@ -1697,10 +1697,6 @@ a {
 .monitor-live-strip {
     margin-bottom: var(--space-2);
 }
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-}
 
 .monitor-two-col {
     display: grid;
