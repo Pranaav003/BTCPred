@@ -20,7 +20,7 @@ from sqlalchemy.orm import joinedload
 from app.db_helpers import export_training_data, get_probability_history, get_recent_signals, get_signal_metrics
 from app.feature_engineering import get_live_snapshot
 from app.kalshi_client import get_active_market, get_btc_price, get_market_prices
-from app.model_loader import get_model
+from app.model_loader import clear_model_cache, get_model
 from app.kalshi_auth import is_configured
 from app.models import AppSettings, LiveTrade, Market, PaperTrade, Signal, TradeSnapshot, db
 from app.paper_trading import (
@@ -143,12 +143,33 @@ def _merged_training_row(row) -> dict[str, object]:
 
 @api_bp.route("/health")
 def health():
-    """Instant liveness for load balancers — no DB or model work."""
+    """Liveness for load balancers — checks DB and model status."""
+    db_status = "ok"
+    try:
+        db.session.execute(db.text("SELECT 1")).scalar()
+    except Exception:
+        db_status = "error"
+
+    model_status = "ok"
+    try:
+        bundle = get_model()
+        if bundle is None:
+            model_status = "not_loaded"
+    except RuntimeError:
+        model_status = "not_loaded"
+    except Exception:
+        model_status = "error"
+
+    overall = "ok" if db_status == "ok" and model_status == "ok" else "degraded"
+    code = 200 if overall == "ok" else 503
+
     return jsonify({
-        "status": "ok",
+        "status": overall,
+        "db": db_status,
+        "model": model_status,
         "ts": time.time(),
         "commit": os.getenv("RENDER_GIT_COMMIT", "local"),
-    }), 200
+    }), code
 
 
 @api_bp.route("/debug/market", methods=["GET"])
@@ -274,7 +295,11 @@ def model_info():
     )
 
 
-@api_bp.route("/scheduler/start", methods=["POST"])
+@api_bp.route("/model/reload", methods=["POST"])
+def model_reload():
+    """Clear the model cache so the next prediction loads the latest .pkl."""
+    clear_model_cache()
+    return jsonify({"status": "cache_cleared"})
 def scheduler_start():
     try:
         AppSettings.set("scheduler_running", "true")

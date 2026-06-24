@@ -1,5 +1,7 @@
 """Dashboard page routes."""
 
+from datetime import datetime, timezone
+
 from flask import Blueprint, redirect, render_template, url_for
 
 from app.model_loader import get_model
@@ -45,10 +47,24 @@ def dashboard():
     poll_interval = int(AppSettings.get("poll_interval_seconds", "30"))
 
     try:
-        get_model()
+        bundle = get_model()
         model_loaded = True
     except Exception:
+        bundle = None
         model_loaded = False
+
+    model_age_days = None
+    if bundle is not None:
+        trained_at = bundle.get("trained_at")
+        if trained_at is not None:
+            try:
+                if isinstance(trained_at, str):
+                    trained_at = datetime.fromisoformat(trained_at)
+                if trained_at.tzinfo is None:
+                    trained_at = trained_at.replace(tzinfo=timezone.utc)
+                model_age_days = (datetime.now(timezone.utc) - trained_at).days
+            except Exception:
+                model_age_days = None
 
     auto_trade_enabled = AppSettings.get("auto_trade_enabled", "false") == "true"
     enable_no_signals = AppSettings.get("enable_no_signals", "false") == "true"
@@ -65,6 +81,7 @@ def dashboard():
         scheduler_running=scheduler_running,
         poll_interval=poll_interval,
         model_loaded=model_loaded,
+        model_age_days=model_age_days,
         auto_trade_enabled=auto_trade_enabled,
         enable_no_signals=enable_no_signals,
         pending_resolution=pending_resolution,

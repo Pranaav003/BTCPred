@@ -195,7 +195,21 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 price_cents=price_cents,
             )
 
+            # Track fill rate for observability.
+            try:
+                attempts = int(AppSettings.get("live_fill_attempts", "0") or 0)
+                AppSettings.set("live_fill_attempts", str(attempts + 1))
+            except Exception:
+                logger.debug("Failed to increment live_fill_attempts", exc_info=True)
+
             if order_result.get("success"):
+                # Track successful fill for observability.
+                try:
+                    successes = int(AppSettings.get("live_fill_successes", "0") or 0)
+                    AppSettings.set("live_fill_successes", str(successes + 1))
+                except Exception:
+                    logger.debug("Failed to increment live_fill_successes", exc_info=True)
+
                 filled_contracts = int(order_result.get("fill_count") or contracts)
                 fill_cost = order_result.get("fill_cost_dollars")
                 avg_fill = order_result.get("average_fill_price")

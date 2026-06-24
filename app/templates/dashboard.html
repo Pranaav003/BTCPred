@@ -2,6 +2,9 @@
 {% block title %}Dashboard — Kalshi Signal{% endblock %}
 
 {% block content %}
+{% if model_age_days and model_age_days > 7 %}
+<div class="alert alert-warning">Model is {{ model_age_days }} days old. Consider retraining.</div>
+{% endif %}
 <section class="trade-layout">
     <header class="trade-header">
         <div>
