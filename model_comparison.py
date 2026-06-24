@@ -10,7 +10,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier, StackingClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, brier_score_loss, log_loss, roc_auc_score
@@ -88,7 +88,7 @@ def calibration_error(y_true: np.ndarray, y_proba: np.ndarray, n_bins: int = 10)
     return float(np.mean(diffs)) if diffs else 0.0
 
 
-def build_model_specs() -> list[tuple[str, Pipeline]]:
+def build_model_specs(scale_pos_weight: float = 1.0) -> list[tuple[str, Pipeline]]:
     specs: list[tuple[str, Pipeline]] = []
     from xgboost import XGBClassifier
 
@@ -109,6 +109,7 @@ def build_model_specs() -> list[tuple[str, Pipeline]]:
                             random_state=42,
                             objective="binary:logistic",
                             eval_metric="logloss",
+                            scale_pos_weight=scale_pos_weight,
                             n_jobs=-1,
                         ),
                     ),
@@ -157,6 +158,7 @@ def build_model_specs() -> list[tuple[str, Pipeline]]:
                             n_estimators=300,
                             max_depth=8,
                             min_samples_leaf=10,
+                            class_weight="balanced",
                             random_state=42,
                             n_jobs=-1,
                         ),
@@ -173,7 +175,7 @@ def build_model_specs() -> list[tuple[str, Pipeline]]:
                 [
                     ("imputer", SimpleImputer(strategy="median")),
                     ("scaler", StandardScaler()),
-                    ("model", LogisticRegression(max_iter=2000, C=1.0)),
+                    ("model", LogisticRegression(max_iter=2000, C=1.0, class_weight="balanced")),
                 ]
             ),
         )
@@ -194,6 +196,51 @@ def build_model_specs() -> list[tuple[str, Pipeline]]:
                             random_state=42,
                         ),
                     ),
+                ]
+            ),
+        )
+    )
+
+    # Stacking ensemble: RF, XGBoost, LR as base estimators with LR meta-learner
+    stacking = StackingClassifier(
+        estimators=[
+            ("rf", RandomForestClassifier(
+                n_estimators=300,
+                max_depth=8,
+                min_samples_leaf=10,
+                class_weight="balanced",
+                random_state=42,
+                n_jobs=-1,
+            )),
+            ("xgb", XGBClassifier(
+                n_estimators=300,
+                max_depth=4,
+                learning_rate=0.05,
+                subsample=0.9,
+                colsample_bytree=0.9,
+                random_state=42,
+                objective="binary:logistic",
+                eval_metric="logloss",
+                scale_pos_weight=scale_pos_weight,
+                n_jobs=-1,
+            )),
+            ("lr", LogisticRegression(
+                max_iter=2000,
+                C=1.0,
+                class_weight="balanced",
+            )),
+        ],
+        final_estimator=LogisticRegression(max_iter=2000, class_weight="balanced"),
+        cv=3,
+        n_jobs=-1,
+    )
+    specs.append(
+        (
+            "StackingEnsemble",
+            Pipeline(
+                [
+                    ("imputer", SimpleImputer(strategy="median")),
+                    ("model", stacking),
                 ]
             ),
         )
@@ -342,7 +389,12 @@ def main() -> None:
     x_test = test_df[RAW_FEATURES]
     y_test = test_df[TARGET]
 
-    specs = build_model_specs()
+    # Compute class imbalance ratio for scale_pos_weight (XGBoost)
+    n_neg = int((y_train == 0).sum())
+    n_pos = int((y_train == 1).sum())
+    scale_pos_weight = n_neg / n_pos if n_pos > 0 else 1.0
+
+    specs = build_model_specs(scale_pos_weight=scale_pos_weight)
     if not specs:
         raise RuntimeError("No models available to compare.")
 

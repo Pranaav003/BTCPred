@@ -10,6 +10,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import sklearn
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import accuracy_score, brier_score_loss, log_loss, roc_auc_score
@@ -127,6 +128,7 @@ def build_pipeline() -> Pipeline:
                     n_estimators=300,
                     max_depth=8,
                     min_samples_leaf=10,
+                    class_weight="balanced",
                     random_state=42,
                     n_jobs=-1,
                 ),
@@ -199,10 +201,11 @@ def train_model(data_path: str, model_output: str) -> dict:
     y_test = test_df[TARGET]
 
     pipeline = build_pipeline()
-    pipeline.fit(x_train, y_train)
+    calibrated_model = CalibratedClassifierCV(pipeline, cv=3, method="isotonic")
+    calibrated_model.fit(x_train, y_train)
 
-    y_pred = pipeline.predict(x_test)
-    y_proba = pipeline.predict_proba(x_test)[:, 1]
+    y_pred = calibrated_model.predict(x_test)
+    y_proba = calibrated_model.predict_proba(x_test)[:, 1]
 
     metrics = compute_metrics(y_test, y_pred, y_proba)
 
@@ -217,9 +220,9 @@ def train_model(data_path: str, model_output: str) -> dict:
     print(f"\nFeature count confirmation: {len(RAW_FEATURES)}")
 
     artifact = {
-        "model": pipeline,
+        "model": calibrated_model,
         "features": RAW_FEATURES,
-        "model_type": "RandomForest",
+        "model_type": "CalibratedRandomForest",
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "test_metrics": metrics,
         "n_train": len(train_df),
