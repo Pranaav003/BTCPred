@@ -74,7 +74,18 @@ def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -
                 return None
             return payload
         except requests.exceptions.Timeout:
-            logger.warning("Request timed out: %s", url)
+            if attempt == 0:
+                logger.warning("Request timed out — retrying in 2s (attempt 1/2) url=%s", url)
+                time.sleep(2)
+                continue
+            logger.warning("Request timed out twice — skipping url=%s", url)
+            return None
+        except requests.exceptions.ConnectionError:
+            if attempt == 0:
+                logger.warning("Connection error — retrying in 2s (attempt 1/2) url=%s", url)
+                time.sleep(2)
+                continue
+            logger.warning("Connection error twice — skipping url=%s", url)
             return None
         except requests.exceptions.HTTPError as exc:
             logger.error("Kalshi GET failed url=%s params=%s error=%s", url, params, exc)
@@ -431,10 +442,11 @@ def get_btc_price() -> float | None:
     """Return cached live BTC spot price in USD from CoinGecko."""
     global _btc_price_cache, _btc_429_until
     now = time.time()
-    if now < _btc_429_until:
-        return _btc_price_cache.get("price")
-    if (now - float(_btc_price_cache.get("ts") or 0)) < BTC_PRICE_CACHE_TTL:
-        return _btc_price_cache.get("price")
+    with _cache_lock:
+        if now < _btc_429_until:
+            return _btc_price_cache.get("price")
+        if (now - float(_btc_price_cache.get("ts") or 0)) < BTC_PRICE_CACHE_TTL:
+            return _btc_price_cache.get("price")
     try:
         response = requests.get(
             "https://api.coingecko.com/api/v3/simple/price",
@@ -442,17 +454,21 @@ def get_btc_price() -> float | None:
             timeout=REQUEST_TIMEOUT,
         )
         if response.status_code == 429:
-            _btc_429_until = time.time() + 300
+            with _cache_lock:
+                _btc_429_until = time.time() + 300
             logger.warning("CoinGecko rate limited, backing off 5 min")
-            return _btc_price_cache.get("price")
+            with _cache_lock:
+                return _btc_price_cache.get("price")
         response.raise_for_status()
         payload = response.json()
         price_raw = payload.get("bitcoin", {}).get("usd") if isinstance(payload, dict) else None
         price = float(price_raw) if price_raw is not None else None
     except Exception:
         logger.exception("Failed to fetch BTC price from CoinGecko")
-        return _btc_price_cache.get("price")
-    _btc_price_cache = {"price": price, "ts": now}
+        with _cache_lock:
+            return _btc_price_cache.get("price")
+    with _cache_lock:
+        _btc_price_cache = {"price": price, "ts": now}
     return price
 
 

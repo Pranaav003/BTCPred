@@ -30,6 +30,8 @@ _consecutive_failures = 0
 _MAX_FAILURES_BEFORE_COOLDOWN = 3
 _COOLDOWN_SECONDS = 60
 _cooldown_until_ts = 0.0
+_cooldown_level = 0
+_COOLDOWN_SCHEDULE = [60, 120, 240, 300]
 
 
 def _auto_trade_allowed_by_daily_loss() -> bool:
@@ -269,7 +271,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
 
 def poll_and_signal() -> None:
     """Scheduled polling job that computes and stores the latest signal."""
-    global _latest_snapshot, _latest_signal, _consecutive_failures, _cooldown_until_ts
+    global _latest_snapshot, _latest_signal, _consecutive_failures, _cooldown_until_ts, _cooldown_level
     start = time.time()
     try:
         if _app is None:
@@ -292,15 +294,19 @@ def poll_and_signal() -> None:
                 _consecutive_failures += 1
                 logger.warning("No live snapshot available; skipping poll cycle.")
                 if _consecutive_failures >= _MAX_FAILURES_BEFORE_COOLDOWN:
-                    _cooldown_until_ts = time.time() + _COOLDOWN_SECONDS
+                    cooldown_secs = _COOLDOWN_SCHEDULE[min(_cooldown_level, len(_COOLDOWN_SCHEDULE) - 1)]
+                    _cooldown_until_ts = time.time() + cooldown_secs
+                    _cooldown_level += 1
                     logger.warning(
-                        "%s consecutive failures. Cooling down for %ss.",
+                        "%s consecutive failures. Cooling down for %ss (level %s).",
                         _consecutive_failures,
-                        _COOLDOWN_SECONDS,
+                        cooldown_secs,
+                        _cooldown_level,
                     )
                     _consecutive_failures = 0
                 return
             _consecutive_failures = 0
+            _cooldown_level = 0
             logger.debug("Live snapshot received with keys: %s", sorted(snapshot.keys()))
 
             result = evaluate_live_signal(snapshot)
