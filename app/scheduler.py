@@ -33,7 +33,7 @@ _cooldown_until_ts = 0.0
 
 def _auto_trade_allowed_by_daily_loss() -> bool:
     """False when net realized PnL from exits today (UTC) is at or below -max_daily_loss."""
-    max_daily_loss = float(AppSettings.get("max_daily_loss", "200.0") or 200.0)
+    max_daily_loss = float(AppSettings.get("max_daily_loss", "50.0") or 50.0)
     if max_daily_loss <= 0:
         return True
     today_pnl = get_realized_pnl_today_utc()

@@ -251,7 +251,7 @@ def execute_paper_trade(
     if normalized_side not in {"YES", "NO"}:
         return {"error": "Invalid side. Must be YES or NO."}
 
-    max_daily_loss = float(AppSettings.get("max_daily_loss", "200.0") or 200.0)
+    max_daily_loss = float(AppSettings.get("max_daily_loss", "50.0") or 50.0)
     if max_daily_loss > 0:
         today_realized = get_realized_pnl_today_utc()
         if today_realized <= -max_daily_loss:
@@ -478,7 +478,7 @@ def get_portfolio_summary():
     base = float(portfolio.starting_balance or 0.0)
     total_return_pct = ((cash_value - base) / base * 100.0) if base else 0.0
 
-    max_daily = float(AppSettings.get("max_daily_loss", "200.0") or 200.0)
+    max_daily = float(AppSettings.get("max_daily_loss", "50.0") or 50.0)
     today_net = get_realized_pnl_today_utc() if max_daily > 0 else 0.0
     loss_blocked = bool(max_daily > 0 and today_net <= -max_daily)
 
