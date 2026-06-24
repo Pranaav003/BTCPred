@@ -185,11 +185,7 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
     avg_trade_price_1m = price_now if avg_trade_price_1m is None else float(avg_trade_price_1m)
     avg_trade_price_3m = price_now if avg_trade_price_3m is None else float(avg_trade_price_3m)
 
-    momentum_1m = return_1m
-    momentum_3m = return_3m
-    momentum_5m = return_5m
     momentum_acceleration = float(return_1m - (return_3m / 3.0))
-    price_velocity_5m = float(return_5m / 5.0)
 
     inv_time = 1.0 / max(seconds_to_close, 1)
     return_1m_x_inv_time = float(return_1m * inv_time)
@@ -231,11 +227,7 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
         "volume_5m": float(volume_5m),
         "avg_trade_price_1m": float(avg_trade_price_1m),
         "avg_trade_price_3m": float(avg_trade_price_3m),
-        "momentum_1m": float(momentum_1m),
-        "momentum_3m": float(momentum_3m),
-        "momentum_5m": float(momentum_5m),
         "momentum_acceleration": float(momentum_acceleration),
-        "price_velocity_5m": float(price_velocity_5m),
         "flip_count_5m": float(flip_count_5m),
         "reversal_risk": float(reversal_risk),
         "return_1m_x_inv_time": float(return_1m_x_inv_time),
