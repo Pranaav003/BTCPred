@@ -148,12 +148,11 @@ def _apply_kalshi_settlement(trade, settlement: dict, now_utc: datetime) -> bool
     no_cost = float(_parse_fp_dollars(settlement.get("no_total_cost_dollars")) or 0.0)
     fee_cost = float(_parse_fp_dollars(settlement.get("fee_cost")) or 0.0)
     revenue_cents = int(settlement.get("revenue") or 0)
-    total_cost = yes_cost + no_cost
-    pnl = round((revenue_cents / 100.0) - total_cost - fee_cost, 2)
+    side_cost = yes_cost if trade_is_yes else no_cost
+    pnl = round((revenue_cents / 100.0) - side_cost - fee_cost, 2)
 
     outcome_yes = market_result == "yes"
     won = (trade_is_yes and outcome_yes) or (not trade_is_yes and not outcome_yes)
-    side_cost = yes_cost if trade_is_yes else no_cost
 
     trade.resolved = True
     trade.order_status = "placed"
