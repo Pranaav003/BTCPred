@@ -1307,15 +1307,32 @@ def paper_trade():
     contracts = payload.get("contracts")
     ticker = payload.get("ticker")
     seconds_to_close = payload.get("seconds_to_close")
+    dollar_amount = payload.get("dollar_amount")
 
     if side is None or contracts is None or ticker is None:
         return jsonify({"error": "side, contracts, and ticker are required"}), 400
+
+    if dollar_amount is not None:
+        try:
+            dollar_amount = float(dollar_amount)
+        except (TypeError, ValueError):
+            return jsonify({"error": "dollar_amount must be a positive number"}), 400
+        if dollar_amount <= 0:
+            return jsonify({"error": "dollar_amount must be a positive number"}), 400
+        portfolio = get_portfolio_summary()
+        if dollar_amount > portfolio.get("cash", 0):
+            return jsonify({
+                "error": "dollar_amount exceeds available cash",
+                "cash": portfolio.get("cash", 0),
+                "dollar_amount": dollar_amount,
+            }), 400
 
     result = execute_paper_trade(
         side=side,
         contracts=contracts,
         ticker=ticker,
         seconds_to_close=seconds_to_close,
+        dollar_amount=dollar_amount,
     )
     if result.get("success"):
         return jsonify(result), 200

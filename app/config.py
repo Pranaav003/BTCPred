@@ -26,6 +26,7 @@ class BaseConfig:
     MAX_SECONDS_TO_CLOSE = int(os.getenv("MAX_SECONDS_TO_CLOSE", "86400"))
 
     SCHEDULER_API_ENABLED = True
+    WTF_CSRF_CHECK_DEFAULT = False
 
 
 class DevelopmentConfig(BaseConfig):
