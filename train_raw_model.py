@@ -80,16 +80,50 @@ def load_and_prepare_data(csv_path: Path) -> pd.DataFrame:
 
 
 def temporal_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split data into first 80% train and last 20% test (time-ordered)."""
+    """Split data by market_ticker to prevent data leakage.
+
+    Markets are sorted by close_ts and split 80/20 so no market appears
+    in both sets. A 15-minute embargo gap is enforced between the last
+    training market and the first test market.
+    """
     if not 0 < TEST_SIZE < 1:
         raise ValueError("TEST_SIZE must be between 0 and 1.")
 
-    split_idx = int(len(df) * (1 - TEST_SIZE))
-    if split_idx <= 0 or split_idx >= len(df):
-        raise ValueError("Dataset size is too small for requested TEST_SIZE split.")
+    if "market_ticker" not in df.columns:
+        # Fallback to row-level split if no market_ticker column
+        split_idx = int(len(df) * (1 - TEST_SIZE))
+        return df.iloc[:split_idx].copy(), df.iloc[split_idx:].copy()
 
-    train_df = df.iloc[:split_idx].copy()
-    test_df = df.iloc[split_idx:].copy()
+    # Get unique markets sorted by their earliest close_ts
+    market_order = (
+        df.groupby("market_ticker")["close_ts"]
+        .min()
+        .sort_values()
+        .index
+        .tolist()
+    )
+    n_test_markets = max(1, int(len(market_order) * TEST_SIZE))
+    n_train_markets = len(market_order) - n_test_markets
+    if n_train_markets <= 0:
+        raise ValueError("Not enough markets for train/test split.")
+
+    train_tickers = set(market_order[:n_train_markets])
+    test_tickers = set(market_order[n_train_markets:])
+
+    train_df = df[df["market_ticker"].isin(train_tickers)].copy()
+    test_df = df[df["market_ticker"].isin(test_tickers)].copy()
+
+    # Enforce 15-minute embargo between last train and first test
+    max_train_ts = train_df["close_ts"].max()
+    min_test_ts = test_df["close_ts"].min()
+    if min_test_ts - max_train_ts < 900:
+        # Drop test markets that start within the embargo window
+        embargo_cutoff = max_train_ts + 900
+        test_df = test_df[test_df["close_ts"] >= embargo_cutoff].copy()
+
+    if len(train_df) == 0 or len(test_df) == 0:
+        raise ValueError("Train/test split resulted in an empty partition.")
+
     return train_df, test_df
 
 

@@ -108,16 +108,37 @@ def main() -> None:
     if missing_features:
         raise ValueError(f"Missing required columns: {missing_features}")
 
-    split_idx = int(len(df) * (1 - TEST_SIZE))
-    train_df = df.iloc[:split_idx]
-    test_df = df.iloc[split_idx:]
+    # Market-level split to prevent data leakage
+    if "market_ticker" in df.columns:
+        market_order = (
+            df.groupby("market_ticker")["close_ts"]
+            .min()
+            .sort_values()
+            .index
+            .tolist()
+        )
+        n_test_markets = max(1, int(len(market_order) * TEST_SIZE))
+        n_train_markets = len(market_order) - n_test_markets
+        train_tickers = set(market_order[:n_train_markets])
+        test_tickers = set(market_order[n_train_markets:])
+        train_df = df[df["market_ticker"].isin(train_tickers)].copy()
+        test_df = df[df["market_ticker"].isin(test_tickers)].copy()
+        max_train_ts = train_df["close_ts"].max()
+        min_test_ts = test_df["close_ts"].min()
+        if min_test_ts - max_train_ts < 900:
+            embargo_cutoff = max_train_ts + 900
+            test_df = test_df[test_df["close_ts"] >= embargo_cutoff].copy()
+    else:
+        split_idx = int(len(df) * (1 - TEST_SIZE))
+        train_df = df.iloc[:split_idx]
+        test_df = df.iloc[split_idx:]
 
     x_train = train_df[RAW_FEATURES]
     y_train = train_df[TARGET].astype(int)
     x_test = test_df[RAW_FEATURES]
     y_test = test_df[TARGET].astype(int)
 
-    w_train = weights[:split_idx] if weights is not None else None
+    w_train = weights[:len(train_df)] if weights is not None else None
 
     print(f"\nTrain: {len(x_train)} rows | Test: {len(x_test)} rows")
     print(f"Train class balance: {y_train.mean():.1%} YES")
