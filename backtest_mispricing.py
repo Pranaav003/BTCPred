@@ -52,6 +52,8 @@ TIME_WINDOWS = [
 ]
 MAX_ENTRY_PRICES = [0.75, 0.85, 1.00]  # YES entry filter
 BASE_TRADE_SIZE = 20.0
+FEE_RATE = 0.01  # 1% on profits (matching Kalshi)
+SPREAD_COST = 0.02  # 2 cents per contract
 
 RESULTS_OUTPUT = "backtest_results.csv"
 BEST_TRADES_OUTPUT = "backtest_best_trades.csv"
@@ -200,10 +202,14 @@ def simulate_mispricing_strategy(
 
         if side == "YES":
             won = outcome_yes == 1
-            pnl = (1.0 - p_market) * contracts if won else -entry_price * contracts
+            gross_pnl = (1.0 - p_market) * contracts if won else -entry_price * contracts
         else:
             won = outcome_yes == 0
-            pnl = p_market * contracts if won else -(1.0 - p_market) * contracts
+            gross_pnl = p_market * contracts if won else -(1.0 - p_market) * contracts
+
+        spread_total = SPREAD_COST * contracts
+        fee = FEE_RATE * max(gross_pnl, 0.0) if won else 0.0
+        pnl = gross_pnl - spread_total - fee
 
         records.append(
             {
@@ -246,7 +252,10 @@ def simulate_agreement_yes(
 
         contracts = BASE_TRADE_SIZE / p_market
         won = outcome_yes == 1
-        pnl = (1.0 - p_market) * contracts if won else -p_market * contracts
+        gross_pnl = (1.0 - p_market) * contracts if won else -p_market * contracts
+        spread_total = SPREAD_COST * contracts
+        fee = FEE_RATE * max(gross_pnl, 0.0) if won else 0.0
+        pnl = gross_pnl - spread_total - fee
         records.append({"pnl": float(pnl), "won": bool(won)})
 
     if not records:
