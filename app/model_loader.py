@@ -55,6 +55,14 @@ def get_model() -> dict:
     return _MODEL_BUNDLE
 
 
+def clear_model_cache() -> None:
+    """Clear the cached model bundle so the next inference reloads from disk."""
+    global _MODEL_BUNDLE
+    with _MODEL_LOCK:
+        _MODEL_BUNDLE = None
+    logger.info("Model cache cleared — next prediction will reload from disk")
+
+
 def predict_proba_raw(feature_dict: dict) -> float:
     """Predict class-1 probability using provided raw feature dictionary."""
     bundle = get_model()

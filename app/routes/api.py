@@ -300,6 +300,9 @@ def model_reload():
     """Clear the model cache so the next prediction loads the latest .pkl."""
     clear_model_cache()
     return jsonify({"status": "cache_cleared"})
+
+
+@api_bp.route("/scheduler/start", methods=["POST"])
 def scheduler_start():
     try:
         AppSettings.set("scheduler_running", "true")
