@@ -159,8 +159,8 @@ function updateDynamicSizingPreview() {
     const baseSizeEl = document.getElementById("dynamic-sizing-base-size");
     if (!modeText || !wrap || !tableBody || !baseSizeEl) return;
 
-    const baseSize = Number(settingsState.settings.paper_trade_size || 20);
-    const safeBase = Number.isFinite(baseSize) && baseSize > 0 ? baseSize : 20;
+    const baseSize = Number(settingsState.settings.paper_trade_size || 10);
+    const safeBase = Number.isFinite(baseSize) && baseSize > 0 ? baseSize : 10;
     baseSizeEl.textContent = `$${safeBase.toFixed(2)}`;
     modeText.textContent = settingsState.dynamicSizingEnabled
         ? "ON: Scales bet size based on upside remaining"
@@ -500,14 +500,14 @@ async function saveSettings() {
         risk_profile: settingsState.activeRiskProfile,
         poll_interval_seconds: Number(document.getElementById("poll-interval-input")?.value || 30),
         enable_no_signals: settingsState.enableNoSignals,
-        paper_trade_size: Number(settingsState.settings.paper_trade_size || 5.0),
+        paper_trade_size: Number(settingsState.settings.paper_trade_size || 10),
         signal_mode: settingsState.signalMode,
         mispricing_threshold: Number(settingsState.mispricingThreshold || 0.10),
         max_entry_price_yes: Number(settingsState.maxEntryPriceYes || 0.85),
         max_entry_price_no: Number(settingsState.maxEntryPriceNo || 0.85),
         min_expected_profit: Number(settingsState.settings.min_expected_profit || 0.10),
         max_reversal_risk: Number(settingsState.maxReversalRisk || 0.65),
-        max_daily_loss: Number(settingsState.maxDailyLoss || 200),
+        max_daily_loss: Number(settingsState.maxDailyLoss || 50),
         dynamic_sizing_enabled: settingsState.dynamicSizingEnabled,
         live_trade_size: Number(document.getElementById("live-trade-size")?.value || 5),
     };
@@ -603,7 +603,7 @@ async function initRiskProfileSettings() {
         settingsState.maxEntryPriceYes = Number(settingsData?.max_entry_price_yes || 0.85);
         settingsState.maxEntryPriceNo = Number(settingsData?.max_entry_price_no || 0.85);
         settingsState.maxReversalRisk = Number(settingsData?.max_reversal_risk || 0.65);
-        settingsState.maxDailyLoss = Number(settingsData?.max_daily_loss || 200);
+        settingsState.maxDailyLoss = Number(settingsData?.max_daily_loss || 50);
         settingsState.dynamicSizingEnabled = (settingsData?.dynamic_sizing_enabled || "false") === "true";
 
         renderRiskProfiles();
@@ -690,7 +690,7 @@ function wireInputs() {
         maxEntryYesSlider.addEventListener("input", () => {
             updateEntryFilterPreview();
             scheduleEntryFilterSave();
-            settingsState.settings.paper_trade_size = settingsState.settings.paper_trade_size || 20;
+            settingsState.settings.paper_trade_size = settingsState.settings.paper_trade_size || 10;
             updateDynamicSizingPreview();
         });
     }

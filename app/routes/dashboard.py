@@ -29,7 +29,7 @@ def _typed_settings() -> dict:
         "max_entry_price_no": float(get_setting("max_entry_price_no", "0.85")),
         "min_expected_profit": float(get_setting("min_expected_profit", "0.10")),
         "max_reversal_risk": float(get_setting("max_reversal_risk", "0.65")),
-        "max_daily_loss": float(get_setting("max_daily_loss", "200.0") or 200.0),
+        "max_daily_loss": float(get_setting("max_daily_loss", "50.0") or 50.0),
         "high_conviction_volatility_override": float(get_setting("high_conviction_volatility_override", "0.80")),
         "scheduler_running": get_setting("scheduler_running", "false") == "true",
     }

@@ -94,6 +94,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
     from datetime import datetime, timezone
 
     from app.kalshi_trader import get_balance, place_order
+    from app.model_loader import get_model
     from app.models import LiveTrade, db
     from app.signal_engine import MIN_ENTRY_PRICE
 
@@ -114,6 +115,14 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                     today_pnl,
                     max_daily_loss,
                 )
+                return
+
+            # Block live trades if no model is loaded — signals without a model
+            # are unreliable and could place bad orders.
+            try:
+                get_model()
+            except Exception:
+                logger.error("Live trade skipped: no model loaded")
                 return
 
             balance = get_balance()

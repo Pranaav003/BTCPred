@@ -7,7 +7,7 @@ def _find_max_daily_loss_defaults():
     with open("app/scheduler.py") as f:
         content = f.read()
     for line in content.splitlines():
-        if 'AppSettings.get("max_daily_loss"' in line:
+        if 'get_setting("max_daily_loss"' in line:
             if '"200.0"' in line:
                 results["scheduler_paper"] = "200.0"
             elif '"50.0"' in line:
@@ -24,7 +24,7 @@ def _find_max_daily_loss_defaults():
     with open("app/paper_trading.py") as f:
         content = f.read()
     for line in content.splitlines():
-        if 'AppSettings.get("max_daily_loss"' in line:
+        if 'get_setting("max_daily_loss"' in line:
             if '"200.0"' in line:
                 results["paper_trading"] = "200.0"
             elif '"50.0"' in line:

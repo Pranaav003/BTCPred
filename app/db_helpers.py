@@ -291,6 +291,15 @@ def seed_default_settings() -> None:
             "Corrected mispricing_threshold from %s to 0.10 (above 20%% rarely fires)", current_threshold
         )
 
+    # Correct max_daily_loss if set above starting balance — losing more
+    # than your bankroll in one day means zeroing out.
+    current_loss = get_setting("max_daily_loss")
+    if current_loss and float(current_loss) > 100.0:
+        set_setting("max_daily_loss", "50.0")
+        logger.info(
+            "Corrected max_daily_loss from %s to 50.0 (above starting balance)", current_loss
+        )
+
 
 def resolve_paper_trades(market: Market) -> int:
     """Resolve all unresolved paper trades for a market ticker."""

@@ -257,7 +257,7 @@
 
             <div class="settings-field">
                 <label for="live-max-daily-loss">Max Daily Loss ($) — live trades</label>
-                <input type="number" id="live-max-daily-loss" min="10" max="1000" step="10" value="50">
+                <input type="number" id="live-max-daily-loss" min="10" max="1000" step="10" value="{{ settings.max_daily_loss | int }}">
                 <p class="text-muted">Auto-stops live trading for the day if net realized losses exceed this amount (shared with paper auto-trader).</p>
             </div>
 
