@@ -38,6 +38,7 @@ const state = {
     openPositionTicker: null,
     openPositionSide: null,
     liveTradingEnabled: false,
+    portfolioPeak: null,
 };
 
 const toText = (value) => (value === null || value === undefined || value === "" ? "--" : String(value));
@@ -1059,6 +1060,19 @@ function renderPortfolio(portfolio) {
     const winRate = Number(portfolio?.win_rate);
     winEl.textContent = Number.isFinite(winRate) ? `${(winRate * 100).toFixed(1)}%` : "--";
     setNumberColor(returnEl, portfolio?.total_return_pct, true);
+    // Track peak for drawdown calculation
+    const totalValue = Number(portfolio?.total_value);
+    if (Number.isFinite(totalValue)) {
+        if (!state.portfolioPeak || totalValue > state.portfolioPeak) {
+            state.portfolioPeak = totalValue;
+        }
+    }
+    const drawdown = state.portfolioPeak && Number.isFinite(totalValue) ? state.portfolioPeak - totalValue : 0;
+    const drawdownEl = document.getElementById("drawdown-display");
+    if (drawdownEl) {
+        drawdownEl.textContent = drawdown > 0 ? `-$${drawdown.toFixed(2)}` : "$0.00";
+        drawdownEl.className = drawdown > 0 ? "mono text-danger" : "mono text-muted";
+    }
     updateTradeCalculator();
 }
 
@@ -1290,7 +1304,32 @@ async function fetchResolvedForToasts() {
 
 async function fetchLiveSnapshot() {
     const snapshot = await apiFetch("/api/live-snapshot", { headers: { Accept: "application/json" } });
-    if (!snapshot) return;
+    if (!snapshot || !snapshot.market_ticker) {
+        // Market closed — no active market
+        document.getElementById("market-ticker").textContent = "No Active Market";
+        const signalCard = document.getElementById("signal-card");
+        if (signalCard) {
+            signalCard.textContent = "MARKET CLOSED";
+            signalCard.className = "card trade-signal-card signal-none";
+        }
+        const signalEl = document.getElementById("metric-signal");
+        if (signalEl) {
+            signalEl.textContent = "MARKET CLOSED";
+            signalEl.style.color = "";
+        }
+        const subtextEl = document.getElementById("signal-subtext");
+        if (subtextEl) subtextEl.textContent = "No market is currently open for trading";
+        const buyYesBtn = document.getElementById("paper-buy-yes-btn");
+        const buyNoBtn = document.getElementById("paper-buy-no-btn");
+        if (buyYesBtn) buyYesBtn.disabled = true;
+        if (buyNoBtn) buyNoBtn.disabled = true;
+        return;
+    }
+    // Re-enable trade buttons when market is active
+    const buyYesBtn = document.getElementById("paper-buy-yes-btn");
+    const buyNoBtn = document.getElementById("paper-buy-no-btn");
+    if (buyYesBtn) buyYesBtn.disabled = false;
+    if (buyNoBtn) buyNoBtn.disabled = false;
     state.yesCutoff = Number.isFinite(Number(snapshot?.yes_cutoff)) ? Number(snapshot.yes_cutoff) : state.yesCutoff;
     const wMin = Number(snapshot.signal_window_min_seconds);
     const wMax = Number(snapshot.signal_window_max_seconds);

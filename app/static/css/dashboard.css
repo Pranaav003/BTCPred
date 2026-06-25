@@ -816,3 +816,37 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* Expected value display */
+.ev-positive {
+    color: var(--green, #10b981);
+    font-weight: 600;
+}
+.ev-negative {
+    color: var(--red, #ef4444);
+    font-weight: 600;
+}
+
+/* Bid/ask spread pill */
+.spread-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: var(--gray-200, #e5e7eb);
+    color: var(--gray-700, #374151);
+    margin-left: 6px;
+}
+.spread-pill.spread-wide {
+    background: var(--amber-100, #fef3c7);
+    color: var(--amber-800, #92400e);
+}
+
+/* Trade confirmation modal */
+.modal-actions {
+    display: flex;
+    gap: var(--space-3, 0.75rem);
+    justify-content: flex-end;
+    margin-top: var(--space-4, 1rem);
+}
