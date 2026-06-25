@@ -16,6 +16,8 @@ MODEL_PATH = "raw_feature_model.pkl"
 TARGET = "final_outcome_yes"
 TEST_SIZE = 0.20
 BASE_TRADE_SIZE = 20.0
+FEE_RATE = 0.01  # 1% on profits (matching Kalshi)
+SPREAD_COST = 0.02  # 2 cents per contract
 
 RAW_FEATURES = [
     "seconds_to_close",
@@ -120,7 +122,10 @@ def build_trade_df(ctx: Context, mask_yes: np.ndarray, mask_no: np.ndarray, conf
         entry = entry[valid]
         contracts = BASE_TRADE_SIZE / entry
         won = (ctx.outcome_yes[idx] == 1).astype(bool)
-        pnl = np.where(won, (1.0 - entry) * contracts, -entry * contracts)
+        gross_pnl = np.where(won, (1.0 - entry) * contracts, -entry * contracts)
+        spread_total = SPREAD_COST * contracts
+        fee = np.where(won, FEE_RATE * np.maximum(gross_pnl, 0.0), 0.0)
+        pnl = gross_pnl - spread_total - fee
         upside = 1.0 - entry
         yes_df = pd.DataFrame(
             {
@@ -147,7 +152,10 @@ def build_trade_df(ctx: Context, mask_yes: np.ndarray, mask_no: np.ndarray, conf
         entry = entry[valid]
         contracts = BASE_TRADE_SIZE / entry
         won = (ctx.outcome_yes[idx] == 0).astype(bool)
-        pnl = np.where(won, ctx.p_market[idx] * contracts, -(1.0 - ctx.p_market[idx]) * contracts)
+        gross_pnl = np.where(won, ctx.p_market[idx] * contracts, -(1.0 - ctx.p_market[idx]) * contracts)
+        spread_total = SPREAD_COST * contracts
+        fee = np.where(won, FEE_RATE * np.maximum(gross_pnl, 0.0), 0.0)
+        pnl = gross_pnl - spread_total - fee
         upside = ctx.p_market[idx]
         no_df = pd.DataFrame(
             {
@@ -493,13 +501,128 @@ def monte_carlo_significance(best_trades: pd.DataFrame, ctx: Context, iters: int
         trade_out = shuf[trade_idx]
         yes_win = side_yes & (trade_out == 1)
         no_win = (~side_yes) & (trade_out == 0)
-        pnl_yes = np.where(yes_win, (1.0 - p_market) * contracts, -entry_yes * contracts)
-        pnl_no = np.where(no_win, p_market * contracts, -entry_no * contracts)
-        pnl = np.where(side_yes, pnl_yes, pnl_no)
+        gross_yes = np.where(yes_win, (1.0 - p_market) * contracts, -entry_yes * contracts)
+        gross_no = np.where(no_win, p_market * contracts, -entry_no * contracts)
+        gross_pnl = np.where(side_yes, gross_yes, gross_no)
+        spread_total = SPREAD_COST * contracts
+        fee = np.where((side_yes & yes_win) | (~side_yes & no_win),
+                       FEE_RATE * np.maximum(gross_pnl, 0.0), 0.0)
+        pnl = gross_pnl - spread_total - fee
         if float(np.sum(pnl)) >= actual_total:
             shuffled_beats += 1
     frac = shuffled_beats / iters
     return frac, actual_total
+
+
+def walk_forward_backtest(
+    df: pd.DataFrame,
+    n_folds: int = 5,
+) -> list[dict]:
+    """Walk-forward backtest: for each fold, train on all prior data, evaluate on the fold.
+
+    Returns a list of dicts, one per fold, with fold index, train size, test size,
+    and the full strategy results DataFrame for that fold.
+    """
+    df_sorted = df.sort_values(by=["close_ts", "market_ticker", "entry_bucket"]).reset_index(drop=True)
+    fold_size = len(df_sorted) // n_folds
+    remainder = len(df_sorted) % n_folds
+
+    fold_results: list[dict] = []
+    boundaries = []
+    start = 0
+    for i in range(n_folds):
+        size = fold_size + (1 if i < remainder else 0)
+        boundaries.append((start, start + size))
+        start += size
+
+    model, model_features = load_model_bundle(MODEL_PATH)
+    missing = sorted(set(model_features) - set(df_sorted.columns))
+    if missing:
+        raise ValueError(f"Missing model features in dataset: {missing}")
+
+    for fold_idx in range(n_folds):
+        test_start, test_end = boundaries[fold_idx]
+        # Train on all data before this fold
+        train_df = df_sorted.iloc[:test_start].copy()
+        test_df = df_sorted.iloc[test_start:test_end].copy()
+
+        if len(train_df) == 0 or len(test_df) == 0:
+            fold_results.append({
+                "fold": fold_idx,
+                "train_size": len(train_df),
+                "test_size": len(test_df),
+                "results": pd.DataFrame(),
+            })
+            continue
+
+        # Fit model predictions on training data + test data
+        # Re-fit is not needed for sklearn models that are already trained;
+        # we use predict_proba from the pre-trained model
+        train_df["p_raw"] = model.predict_proba(train_df[model_features])[:, 1]
+        test_df["p_raw"] = model.predict_proba(test_df[model_features])[:, 1]
+
+        test_ctx = Context(
+            p_market=test_df["price_now"].to_numpy(dtype=float),
+            p_raw=test_df["p_raw"].to_numpy(dtype=float),
+            seconds=test_df["seconds_to_close"].to_numpy(dtype=int),
+            outcome_yes=test_df[TARGET].to_numpy(dtype=int),
+            row_index=np.arange(len(test_df), dtype=int),
+            n_rows=len(test_df),
+        )
+
+        global CURRENT_N_ROWS
+        old_n = CURRENT_N_ROWS
+        CURRENT_N_ROWS = len(test_df)
+        results, _ = run_all_strategies(test_ctx)
+        CURRENT_N_ROWS = old_n
+
+        fold_results.append({
+            "fold": fold_idx,
+            "train_size": len(train_df),
+            "test_size": len(test_df),
+            "results": results,
+        })
+
+    return fold_results
+
+
+def regime_analysis(
+    test_df: pd.DataFrame,
+    trades_df: pd.DataFrame,
+) -> dict[str, dict]:
+    """Split trade results by volatility regime (high vs low, based on median volatility_5m).
+
+    Parameters
+    ----------
+    test_df : DataFrame with a ``volatility_5m`` column, indexed or aligned to
+        the same row order used to build *trades_df*.
+    trades_df : DataFrame of trades produced by :func:`build_trade_df`.
+
+    Returns
+    -------
+    dict with keys ``"low_vol"`` and ``"high_vol"``, each mapping to a metrics
+    dict produced by :func:`metrics_from_trades`.
+    """
+    if trades_df.empty or "volatility_5m" not in test_df.columns:
+        empty = metrics_from_trades("regime", "", pd.DataFrame())
+        return {"low_vol": empty, "high_vol": empty}
+
+    vol_median = test_df["volatility_5m"].median()
+    # Map volatility_5m from test_df onto each trade via row_idx
+    vol_series = test_df["volatility_5m"].reset_index(drop=True)
+    trades_with_vol = trades_df.copy()
+    trades_with_vol["volatility_5m"] = trades_with_vol["row_idx"].map(
+        lambda idx: vol_series.iloc[idx] if idx < len(vol_series) else float("nan")
+    )
+
+    low_vol_trades = trades_with_vol[trades_with_vol["volatility_5m"] <= vol_median]
+    high_vol_trades = trades_with_vol[trades_with_vol["volatility_5m"] > vol_median]
+
+    return {
+        "low_vol": metrics_from_trades("regime", f"low_vol (vol<={vol_median:.6f})", low_vol_trades),
+        "high_vol": metrics_from_trades("regime", f"high_vol (vol>{vol_median:.6f})", high_vol_trades),
+        "vol_median": vol_median,
+    }
 
 
 def print_honest_conclusion(results: pd.DataFrame) -> None:
