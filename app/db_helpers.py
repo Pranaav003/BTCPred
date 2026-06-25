@@ -237,6 +237,16 @@ def seed_default_settings() -> None:
         if AppSettings.get(key) is None:
             AppSettings.set(key, value)
 
+    # Correct mispricing threshold if set to an unreasonably high value
+    # that would prevent mispricing signals from ever firing.
+    current_threshold = AppSettings.get("mispricing_threshold")
+    if current_threshold and float(current_threshold) > 0.20:
+        AppSettings.set("mispricing_threshold", "0.10")
+        import logging
+        logging.getLogger(__name__).info(
+            "Corrected mispricing_threshold from %s to 0.10 (above 20%% rarely fires)", current_threshold
+        )
+
 
 def resolve_paper_trades(market: Market) -> int:
     """Resolve all unresolved paper trades for a market ticker."""
