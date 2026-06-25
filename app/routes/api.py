@@ -20,7 +20,7 @@ from sqlalchemy.orm import joinedload
 from app.db_helpers import export_training_data, get_probability_history, get_recent_signals, get_signal_metrics
 from app.feature_engineering import get_live_snapshot
 from app.kalshi_client import get_active_market, get_btc_price, get_market_prices
-from app.model_loader import clear_model_cache, get_model
+from app.model_loader import clear_model_cache, get_model, save_model_to_db
 from app.kalshi_auth import is_configured
 from app.models import AppSettings, LiveTrade, Market, PaperTrade, Signal, TradeSnapshot, db
 from app.paper_trading import (
@@ -300,6 +300,43 @@ def model_reload():
     """Clear the model cache so the next prediction loads the latest .pkl."""
     clear_model_cache()
     return jsonify({"status": "cache_cleared"})
+
+
+@api_bp.route("/model/upload", methods=["POST"])
+def model_upload():
+    """Upload a .pkl model file and persist it to the database.
+
+    Accepts multipart form-data with a 'file' field.
+    The model is stored in the model_artifacts table so it survives deploys.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded — use form field 'file'"}), 400
+
+    uploaded = request.files["file"]
+    if not uploaded.filename:
+        return jsonify({"error": "Empty filename"}), 400
+
+    # Save to temp location, then persist to DB
+    import tempfile
+    import os
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as tmp:
+            uploaded.save(tmp)
+            tmp_path = tmp.name
+
+        info = save_model_to_db(tmp_path)
+        clear_model_cache()
+
+        # Clean up temp file
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+        return jsonify({"status": "uploaded", **info})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
 @api_bp.route("/scheduler/start", methods=["POST"])

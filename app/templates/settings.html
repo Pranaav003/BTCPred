@@ -308,8 +308,15 @@
     <article class="card settings-card">
         <header class="panel-head">
             <h3>Model Information</h3>
-            <button type="button" class="btn-ghost" disabled title="Run python train_raw_model.py to retrain the model">Retrain Model</button>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <label class="btn-ghost" style="cursor:pointer;margin:0;" title="Upload a .pkl model file — it will be stored in the database and survive deploys">
+                    Upload Model
+                    <input type="file" id="model-upload-input" accept=".pkl" style="display:none;">
+                </label>
+                <button type="button" class="btn-ghost" id="reload-model-btn" title="Clear the in-memory model cache and reload from disk/DB">Reload</button>
+            </div>
         </header>
+        <div id="model-upload-status" class="hidden" style="margin:8px 0;padding:8px 12px;border-radius:6px;font-size:0.9em;"></div>
         <div class="warning-banner warning-banner-danger hidden" id="model-version-warning">⚠ sklearn version mismatch — retrain recommended</div>
         <div class="settings-info-grid" id="model-info-grid">
             <div>

@@ -742,6 +742,48 @@ window.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("save-settings-btn")?.addEventListener("click", saveSettings);
     document.getElementById("start-scheduler-btn")?.addEventListener("click", () => schedulerAction("start"));
     document.getElementById("stop-scheduler-btn")?.addEventListener("click", () => schedulerAction("stop"));
+
+    // Model upload
+    document.getElementById("model-upload-input")?.addEventListener("change", async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        const statusEl = document.getElementById("model-upload-status");
+        if (statusEl) {
+            statusEl.textContent = `Uploading ${file.name}...`;
+            statusEl.className = "warning-banner";
+            statusEl.classList.remove("hidden");
+        }
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+            const res = await fetch("/api/model/upload", { method: "POST", body: formData });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Upload failed");
+            if (statusEl) {
+                statusEl.textContent = `✓ Model uploaded — ${(data.size_bytes / 1024).toFixed(0)} KB, accuracy ${(data.accuracy * 100).toFixed(1)}%`;
+                statusEl.className = "warning-banner warning-banner-success";
+            }
+            await loadModelInfo();
+        } catch (err) {
+            if (statusEl) {
+                statusEl.textContent = `✗ ${err.message}`;
+                statusEl.className = "warning-banner warning-banner-danger";
+            }
+        }
+        event.target.value = "";
+    });
+
+    // Model reload
+    document.getElementById("reload-model-btn")?.addEventListener("click", async () => {
+        try {
+            await fetch("/api/model/reload", { method: "POST" });
+            showSettingsToast("Model cache cleared — reloading", "success");
+            await loadModelInfo();
+        } catch (err) {
+            showSettingsToast(`Reload failed: ${err.message}`, "error");
+        }
+    });
+
     window.setInterval(updateLastSavedLabel, 1000);
 });
 

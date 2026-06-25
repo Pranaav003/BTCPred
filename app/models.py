@@ -263,6 +263,20 @@ class AppSettings(db.Model):
     value = db.Column(db.String(256))
     updated_at = db.Column(db.DateTime, default=utcnow, onupdate=utcnow)
 
+
+class ModelArtifact(db.Model):
+    """Stored model .pkl binary — survives Render deploys."""
+
+    __tablename__ = "model_artifacts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), unique=True, nullable=False, default="default")
+    data = db.Column(db.LargeBinary, nullable=False)
+    uploaded_at = db.Column(db.DateTime, default=utcnow)
+    size_bytes = db.Column(db.Integer, nullable=True)
+    model_type = db.Column(db.String(64), nullable=True)
+    accuracy = db.Column(db.Float, nullable=True)
+
     @classmethod
     def get(cls, key: str, default: str | None = None) -> str | None:
         """Get setting value by key or return default."""
