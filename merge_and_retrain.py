@@ -36,6 +36,26 @@ RAW_FEATURES = [
 ]
 
 
+def check_feature_drift(historical_df, live_df, features, alpha=0.05):
+    """Run KS test on key features to detect distribution shift."""
+    from scipy.stats import ks_2samp
+    drift_details = {}
+    drift_detected = False
+    for feat in features:
+        if feat not in historical_df.columns or feat not in live_df.columns:
+            continue
+        hist_vals = historical_df[feat].dropna().values
+        live_vals = live_df[feat].dropna().values
+        if len(hist_vals) < 10 or len(live_vals) < 10:
+            continue
+        stat, p_val = ks_2samp(hist_vals, live_vals)
+        drift_details[feat] = (stat, p_val)
+        if p_val < alpha:
+            drift_detected = True
+            print(f"  DRIFT: {feat}: KS stat={stat:.4f}, p={p_val:.4f}")
+    return drift_detected, drift_details
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--live-only", action="store_true", help="Train on live data only, ignore historical")
@@ -76,6 +96,7 @@ def main() -> None:
         print(f"Estimated time to minimum: ~{remaining * 15 / 60:.0f} minutes at 15s polling")
         sys.exit(1)
 
+    hist_df = None
     if args.live_only:
         df = live_df
         print("Training on live data only")
@@ -103,6 +124,17 @@ def main() -> None:
         print(f"Live data upweighted {args.live_weight}x")
     else:
         weights = None
+
+    # --- Concept drift detection ---
+    drift_features = ["return_1m", "return_3m", "volatility_3m", "volatility_5m", "trade_count_1m"]
+    if hist_df is not None:
+        print("\nChecking for feature drift (historical vs live)...")
+        drift_detected, drift_details = check_feature_drift(hist_df, live_df, drift_features)
+        if drift_detected:
+            print("WARNING: Concept drift detected — live feature distributions differ from historical.")
+            print("  The retrained model may not generalise well. Consider collecting more live data.")
+        else:
+            print("  No significant drift detected across key features.")
 
     missing_features = sorted(set(RAW_FEATURES + [TARGET]) - set(df.columns))
     if missing_features:
@@ -158,6 +190,22 @@ def main() -> None:
     print("\nTest metrics:")
     for k, v in metrics.items():
         print(f"  {k}: {v:.4f}")
+
+    # --- Model comparison guard ---
+    old_model_path = model_out
+    try:
+        old_bundle = joblib.load(old_model_path)
+        old_model = old_bundle.get("model") or old_bundle.get("pipeline")
+        if old_model is not None:
+            old_preds = old_model.predict_proba(x_test)[:, 1]
+            old_brier = brier_score_loss(y_test, old_preds)
+            new_brier = metrics["brier"]
+            print(f"Old model Brier: {old_brier:.4f}")
+            print(f"New model Brier: {new_brier:.4f}")
+            if new_brier > old_brier + 0.01:
+                print("WARNING: New model is WORSE than old model. Saving anyway, but consider rolling back.")
+    except Exception as exc:
+        print(f"Could not compare with old model: {exc}")
 
     out_path = Path(model_out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
