@@ -305,10 +305,15 @@ def export_training_data(output_path: str = "live_training_data.csv") -> tuple[i
         "abs_return_1m", "trade_count_1m", "trade_count_3m",
         "trade_count_5m", "volume_1m", "volume_3m", "volume_5m",
         "avg_trade_price_1m", "avg_trade_price_3m",
-        "momentum_1m", "momentum_3m", "momentum_5m",
-        "momentum_acceleration", "price_velocity_5m",
+        "momentum_acceleration",
         "flip_count_5m", "return_1m_x_inv_time",
         "return_3m_x_inv_time", "volatility_5m_x_inv_time",
+        "bid_ask_spread", "rsi_14", "session",
+        "distance_from_strike", "outcome_rate_bucket",
+        "return_5m_ratio",
+        "was_missing_return_1m", "was_missing_return_3m",
+        "was_missing_return_5m", "was_missing_volatility_3m",
+        "was_missing_volatility_5m",
     ]
     fieldnames = (
         raw_features
