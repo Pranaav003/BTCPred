@@ -11,7 +11,7 @@ from app.model_loader import predict_proba_raw
 
 logger = logging.getLogger(__name__)
 MISPRICING_THRESHOLD = 0.10
-MAX_MISPRICING_OVERRIDE_RISK = 0.50
+MAX_MISPRICING_OVERRIDE_RISK = 0.65
 # Never signal or enter when the traded side costs less than this (extreme leverage).
 MIN_ENTRY_PRICE = 0.05
 
@@ -685,7 +685,9 @@ def evaluate_ensemble_signal(
         return result
 
     # 4) Apply volatility guard after signal type is known.
-    if volatility_guard_active:
+    # Only block agreement trades during high volatility — mispricing signals
+    # are already filtered by max_mispricing_override_risk above.
+    if volatility_guard_active and signal_type == "agreement":
         result = no_signal_result(
             p_market,
             p_raw,
@@ -815,7 +817,7 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
             ),
         )
 
-    cutoff_buffer = float(AppSettings.get("cutoff_buffer", "0.05") or 0.05)
+    cutoff_buffer = float(AppSettings.get("cutoff_buffer", "0.03") or 0.03)
     if abs(p_raw - yes_cutoff) < cutoff_buffer:
         return no_signal_result(
             p_market=p_market,

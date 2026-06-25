@@ -601,7 +601,7 @@ class TestEvaluateEnsembleSignal:
         assert result.agreement_region == "volatility_guard"
 
     def test_volatility_guard_allows_mispricing(self):
-        """After strategy change: volatility guard now blocks mispricing too."""
+        """Volatility guard only blocks agreement — mispricing signals still trade."""
         result = evaluate_ensemble_signal(
             p_market=0.45,
             p_raw=0.70,
@@ -613,9 +613,9 @@ class TestEvaluateEnsembleSignal:
             max_seconds=180,
             volatility_guard_active=True,
         )
-        # Task 15 change: mispricing no longer bypasses volatility guard
-        assert result.signal == "NO SIGNAL"
-        assert result.agreement_region == "volatility_guard"
+        # Mispricing bypasses volatility guard — only agreement is blocked
+        assert result.signal == "PAPER BUY YES"
+        assert result.agreement_region == "model_bullish"
 
     def test_entry_filtered_yes_price_too_high(self):
         """YES agreement but price above max_entry_yes -> NO SIGNAL."""

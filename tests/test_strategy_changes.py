@@ -2,9 +2,9 @@
 import pytest
 
 
-class TestVolatilityGuardNoBypass:
-    def test_mispricing_blocked_by_volatility_guard(self):
-        """After the change, mispricing trades should also be blocked by volatility guard."""
+class TestVolatilityGuardMispricingBypass:
+    def test_mispricing_bypasses_volatility_guard(self):
+        """Volatility guard only blocks agreement — mispricing signals still trade."""
         from app.signal_engine import evaluate_ensemble_signal
         result = evaluate_ensemble_signal(
             p_market=0.30, p_raw=0.60,
@@ -13,5 +13,5 @@ class TestVolatilityGuardNoBypass:
             min_seconds=60, max_seconds=180,
             volatility_guard_active=True,
         )
-        assert result.signal == "NO SIGNAL", "Mispricing should now be blocked by volatility guard"
-        assert result.agreement_region == "volatility_guard"
+        assert result.signal == "PAPER BUY YES", "Mispricing should bypass volatility guard"
+        assert result.agreement_region == "model_bullish"

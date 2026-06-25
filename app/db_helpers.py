@@ -228,8 +228,8 @@ def seed_default_settings() -> None:
         "scheduler_running": "false",
         "live_trading_enabled": "false",
         "live_trade_size": "5.0",
-        "cutoff_buffer": "0.05",
-        "max_mispricing_override_risk": "0.50",
+        "cutoff_buffer": "0.03",
+        "max_mispricing_override_risk": "0.65",
         "min_auto_trade_confidence": "0.35",
     }
 
