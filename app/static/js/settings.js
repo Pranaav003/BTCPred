@@ -509,6 +509,7 @@ async function saveSettings() {
         max_reversal_risk: Number(settingsState.maxReversalRisk || 0.65),
         max_daily_loss: Number(settingsState.maxDailyLoss || 200),
         dynamic_sizing_enabled: settingsState.dynamicSizingEnabled,
+        live_trade_size: Number(document.getElementById("live-trade-size")?.value || 5),
     };
     try {
         await savePartialSettings(payload);
