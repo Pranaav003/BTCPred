@@ -47,6 +47,11 @@ RAW_FEATURES = [
     "return_1m_x_inv_time",
     "return_3m_x_inv_time",
     "volatility_5m_x_inv_time",
+    "was_missing_return_1m",
+    "was_missing_return_3m",
+    "was_missing_return_5m",
+    "was_missing_volatility_3m",
+    "was_missing_volatility_5m",
 ]
 
 
