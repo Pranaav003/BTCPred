@@ -278,7 +278,7 @@ class ModelArtifact(db.Model):
     accuracy = db.Column(db.Float, nullable=True)
 
     @classmethod
-    def get(cls, key: str, default: str | None = None) -> str | None:
+    def get_value(cls, key: str, default: str | None = None) -> str | None:
         """Get setting value by key or return default."""
         try:
             row = cls.query.filter_by(key=key).first()
@@ -293,7 +293,7 @@ class ModelArtifact(db.Model):
                 return default
 
     @classmethod
-    def set(cls, key: str, value: str | None) -> "AppSettings":
+    def set_value(cls, key: str, value: str | None) -> "AppSettings":
         """Upsert a setting and persist it."""
         try:
             row = cls.query.filter_by(key=key).first()

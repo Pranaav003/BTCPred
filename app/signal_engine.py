@@ -83,7 +83,7 @@ def get_profile(profile_name: str) -> dict[str, Any]:
     base = RISK_PROFILES.get(normalized, RISK_PROFILES["moderate"]).copy()
     for key in PROFILE_OVERRIDE_FIELDS:
         setting_key = f"profile_override_{normalized}_{key}"
-        saved = AppSettings.get(setting_key)
+        saved = AppSettings.get_value(setting_key)
         if saved is None:
             continue
         if key in {"yes_cutoff", "no_cutoff", "early_entry_cutoff"}:
@@ -759,7 +759,7 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
     # Lazy import to avoid circular dependencies at module import time.
     from app.models import AppSettings
 
-    risk_profile = (AppSettings.get("risk_profile", "moderate") or "moderate").strip().lower()
+    risk_profile = (AppSettings.get_value("risk_profile", "moderate") or "moderate").strip().lower()
     logger.info("risk_profile from DB: '%s'", risk_profile)
     profile = get_profile(risk_profile)
     logger.info(
@@ -770,7 +770,7 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
         profile.get("early_entry_enabled"),
     )
 
-    enable_no_raw = AppSettings.get("enable_no_signals", "NOT FOUND")
+    enable_no_raw = AppSettings.get_value("enable_no_signals", "NOT FOUND")
     logger.info("enable_no raw value from DB: '%s'", enable_no_raw)
     enable_no = str(enable_no_raw).lower() == "true"
     yes_cutoff = float(profile["yes_cutoff"])
@@ -781,14 +781,14 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
     early_entry_min_seconds = profile.get("early_entry_min_seconds")
     early_entry_max_seconds = profile.get("early_entry_max_seconds")
     early_entry_cutoff = profile.get("early_entry_cutoff")
-    signal_mode = (AppSettings.get("signal_mode", "agreement") or "agreement").strip().lower()
+    signal_mode = (AppSettings.get_value("signal_mode", "agreement") or "agreement").strip().lower()
     if signal_mode == "ensemble_vote":
         signal_mode = "ensemble"
-    mispricing_threshold = float(AppSettings.get("mispricing_threshold", str(MISPRICING_THRESHOLD)) or MISPRICING_THRESHOLD)
-    max_entry_yes = float(AppSettings.get("max_entry_price_yes", "0.85") or 0.85)
-    max_entry_no = float(AppSettings.get("max_entry_price_no", "0.85") or 0.85)
-    max_reversal = float(AppSettings.get("max_reversal_risk", "0.65") or 0.65)
-    high_conviction_override = float(AppSettings.get("high_conviction_volatility_override", "0.80") or 0.80)
+    mispricing_threshold = float(AppSettings.get_value("mispricing_threshold", str(MISPRICING_THRESHOLD)) or MISPRICING_THRESHOLD)
+    max_entry_yes = float(AppSettings.get_value("max_entry_price_yes", "0.85") or 0.85)
+    max_entry_no = float(AppSettings.get_value("max_entry_price_no", "0.85") or 0.85)
+    max_reversal = float(AppSettings.get_value("max_reversal_risk", "0.65") or 0.65)
+    high_conviction_override = float(AppSettings.get_value("high_conviction_volatility_override", "0.80") or 0.80)
 
     try:
         p_raw = predict_proba_raw(feature_dict)
@@ -801,7 +801,7 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
     entry_bucket = int(feature_dict.get("entry_bucket", 60) or 60)
     reversal_risk = float(feature_dict.get("reversal_risk", 0.0) or 0.0)
     confidence = abs(p_market - 0.5) + abs(p_raw - 0.5)
-    max_mispricing_override = float(AppSettings.get("max_mispricing_override_risk", str(MAX_MISPRICING_OVERRIDE_RISK)) or MAX_MISPRICING_OVERRIDE_RISK)
+    max_mispricing_override = float(AppSettings.get_value("max_mispricing_override_risk", str(MAX_MISPRICING_OVERRIDE_RISK)) or MAX_MISPRICING_OVERRIDE_RISK)
     if reversal_risk > max_mispricing_override:
         return no_signal_result(
             p_market=p_market,
@@ -817,7 +817,7 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
             ),
         )
 
-    cutoff_buffer = float(AppSettings.get("cutoff_buffer", "0.03") or 0.03)
+    cutoff_buffer = float(AppSettings.get_value("cutoff_buffer", "0.03") or 0.03)
     if abs(p_raw - yes_cutoff) < cutoff_buffer:
         return no_signal_result(
             p_market=p_market,

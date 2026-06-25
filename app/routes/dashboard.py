@@ -14,24 +14,24 @@ dashboard_bp = Blueprint("dashboard", __name__)
 def _typed_settings() -> dict:
     """Return runtime settings with typed values for templates."""
     return {
-        "yes_cutoff": float(AppSettings.get("yes_cutoff", "0.65")),
-        "no_cutoff": float(AppSettings.get("no_cutoff", "0.35")),
-        "min_seconds_to_close": int(AppSettings.get("min_seconds_to_close", "30")),
-        "max_seconds_to_close": int(AppSettings.get("max_seconds_to_close", "180")),
-        "poll_interval_seconds": int(AppSettings.get("poll_interval_seconds", "30")),
-        "enable_no_signals": AppSettings.get("enable_no_signals", "false") == "true",
-        "auto_trade_enabled": AppSettings.get("auto_trade_enabled", "false") == "true",
-        "paper_trade_size": float(AppSettings.get("paper_trade_size", "10.0")),
-        "risk_profile": AppSettings.get("risk_profile", "moderate") or "moderate",
-        "signal_mode": AppSettings.get("signal_mode", "agreement") or "agreement",
-        "mispricing_threshold": float(AppSettings.get("mispricing_threshold", "0.10")),
-        "max_entry_price_yes": float(AppSettings.get("max_entry_price_yes", "0.85")),
-        "max_entry_price_no": float(AppSettings.get("max_entry_price_no", "0.85")),
-        "min_expected_profit": float(AppSettings.get("min_expected_profit", "0.10")),
-        "max_reversal_risk": float(AppSettings.get("max_reversal_risk", "0.65")),
-        "max_daily_loss": float(AppSettings.get("max_daily_loss", "200.0") or 200.0),
-        "high_conviction_volatility_override": float(AppSettings.get("high_conviction_volatility_override", "0.80")),
-        "scheduler_running": AppSettings.get("scheduler_running", "false") == "true",
+        "yes_cutoff": float(AppSettings.get_value("yes_cutoff", "0.65")),
+        "no_cutoff": float(AppSettings.get_value("no_cutoff", "0.35")),
+        "min_seconds_to_close": int(AppSettings.get_value("min_seconds_to_close", "30")),
+        "max_seconds_to_close": int(AppSettings.get_value("max_seconds_to_close", "180")),
+        "poll_interval_seconds": int(AppSettings.get_value("poll_interval_seconds", "30")),
+        "enable_no_signals": AppSettings.get_value("enable_no_signals", "false") == "true",
+        "auto_trade_enabled": AppSettings.get_value("auto_trade_enabled", "false") == "true",
+        "paper_trade_size": float(AppSettings.get_value("paper_trade_size", "10.0")),
+        "risk_profile": AppSettings.get_value("risk_profile", "moderate") or "moderate",
+        "signal_mode": AppSettings.get_value("signal_mode", "agreement") or "agreement",
+        "mispricing_threshold": float(AppSettings.get_value("mispricing_threshold", "0.10")),
+        "max_entry_price_yes": float(AppSettings.get_value("max_entry_price_yes", "0.85")),
+        "max_entry_price_no": float(AppSettings.get_value("max_entry_price_no", "0.85")),
+        "min_expected_profit": float(AppSettings.get_value("min_expected_profit", "0.10")),
+        "max_reversal_risk": float(AppSettings.get_value("max_reversal_risk", "0.65")),
+        "max_daily_loss": float(AppSettings.get_value("max_daily_loss", "200.0") or 200.0),
+        "high_conviction_volatility_override": float(AppSettings.get_value("high_conviction_volatility_override", "0.80")),
+        "scheduler_running": AppSettings.get_value("scheduler_running", "false") == "true",
     }
 
 
@@ -43,8 +43,8 @@ def home():
 
 @dashboard_bp.route("/dashboard")
 def dashboard():
-    scheduler_running = AppSettings.get("scheduler_running", "false") == "true"
-    poll_interval = int(AppSettings.get("poll_interval_seconds", "30"))
+    scheduler_running = AppSettings.get_value("scheduler_running", "false") == "true"
+    poll_interval = int(AppSettings.get_value("poll_interval_seconds", "30"))
 
     try:
         bundle = get_model()
@@ -66,15 +66,15 @@ def dashboard():
             except Exception:
                 model_age_days = None
 
-    auto_trade_enabled = AppSettings.get("auto_trade_enabled", "false") == "true"
-    enable_no_signals = AppSettings.get("enable_no_signals", "false") == "true"
+    auto_trade_enabled = AppSettings.get_value("auto_trade_enabled", "false") == "true"
+    enable_no_signals = AppSettings.get_value("enable_no_signals", "false") == "true"
     try:
         resolution_summary = get_resolution_summary()
     except Exception:
         resolution_summary = {"pending_resolution": 0}
     pending_resolution = int(resolution_summary.get("pending_resolution", 0) or 0)
-    paper_trading_enabled = AppSettings.get("paper_trading_enabled", "false") == "true"
-    paper_trade_size = float(AppSettings.get("paper_trade_size", "10.0"))
+    paper_trading_enabled = AppSettings.get_value("paper_trading_enabled", "false") == "true"
+    paper_trade_size = float(AppSettings.get_value("paper_trade_size", "10.0"))
 
     return render_template(
         "dashboard.html",
@@ -92,14 +92,14 @@ def dashboard():
 
 @dashboard_bp.route("/monitor")
 def monitor():
-    scheduler_running = AppSettings.get("scheduler_running", "false") == "true"
+    scheduler_running = AppSettings.get_value("scheduler_running", "false") == "true"
     try:
         get_model()
         model_loaded = True
     except Exception:
         model_loaded = False
-    auto_trade_enabled = AppSettings.get("auto_trade_enabled", "false") == "true"
-    enable_no_signals = AppSettings.get("enable_no_signals", "false") == "true"
+    auto_trade_enabled = AppSettings.get_value("auto_trade_enabled", "false") == "true"
+    enable_no_signals = AppSettings.get_value("enable_no_signals", "false") == "true"
     try:
         resolution_summary = get_resolution_summary()
     except Exception:

@@ -234,17 +234,21 @@ def seed_default_settings() -> None:
     }
 
     for key, value in defaults.items():
-        if AppSettings.get(key) is None:
-            AppSettings.set(key, value)
+        existing = AppSettings.query.filter_by(key=key).first()
+        if existing is None:
+            db.session.add(AppSettings(key=key, value=value))
+    db.session.commit()
 
     # Correct mispricing threshold if set to an unreasonably high value
     # that would prevent mispricing signals from ever firing.
-    current_threshold = AppSettings.get("mispricing_threshold")
-    if current_threshold and float(current_threshold) > 0.20:
-        AppSettings.set("mispricing_threshold", "0.10")
+    threshold_row = AppSettings.query.filter_by(key="mispricing_threshold").first()
+    if threshold_row and threshold_row.value and float(threshold_row.value) > 0.20:
+        old_val = threshold_row.value
+        threshold_row.value = "0.10"
+        db.session.commit()
         import logging
         logging.getLogger(__name__).info(
-            "Corrected mispricing_threshold from %s to 0.10 (above 20%% rarely fires)", current_threshold
+            "Corrected mispricing_threshold from %s to 0.10 (above 20%% rarely fires)", old_val
         )
 
 

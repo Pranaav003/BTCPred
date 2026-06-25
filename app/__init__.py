@@ -34,7 +34,12 @@ def create_app(config_name: str | None = None) -> Flask:
         seed_default_settings()
         # Scheduler starts automatically; auto-trade requires explicit user activation for safety.
         from app.models import AppSettings
-        AppSettings.set("scheduler_running", "true")
+        row = AppSettings.query.filter_by(key="scheduler_running").first()
+        if row:
+            row.value = "true"
+        else:
+            db.session.add(AppSettings(key="scheduler_running", value="true"))
+        db.session.commit()
 
     app.scheduler_instance = None
     app.register_blueprint(dashboard_bp)
