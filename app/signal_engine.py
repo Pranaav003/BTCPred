@@ -11,7 +11,7 @@ from app.model_loader import predict_proba_raw
 
 logger = logging.getLogger(__name__)
 MISPRICING_THRESHOLD = 0.10
-MAX_MISPRICING_OVERRIDE_RISK = 0.65
+MAX_MISPRICING_OVERRIDE_RISK = 0.50
 # Never signal or enter when the traded side costs less than this (extreme leverage).
 MIN_ENTRY_PRICE = 0.05
 
@@ -685,7 +685,7 @@ def evaluate_ensemble_signal(
         return result
 
     # 4) Apply volatility guard after signal type is known.
-    if volatility_guard_active and signal_type == "agreement":
+    if volatility_guard_active:
         result = no_signal_result(
             p_market,
             p_raw,
@@ -694,7 +694,7 @@ def evaluate_ensemble_signal(
             effective_cutoff,
             1.0 - effective_cutoff,
             "volatility_guard",
-            "Volatility guard: agreement trade blocked (reversal risk too high)",
+            "Volatility guard: trade blocked (reversal risk too high)",
         )
         logger.info(
             "evaluate_ensemble_signal result: signal=%s, region=%s, volatility_guard_active=%s, mispricing_bullish=%s, mispricing_bearish=%s, gap=%.4f",
@@ -707,12 +707,6 @@ def evaluate_ensemble_signal(
         )
         return result
 
-    volatility_note = (
-        " [mispricing override: volatility guard bypassed]"
-        if (volatility_guard_active and signal_type == "mispricing")
-        else ""
-    )
-
     # 5) Build final reason.
     if region == "agree_yes" and signal_type == "agreement":
         if agreement_yes and mispricing_bullish:
@@ -722,12 +716,10 @@ def evaluate_ensemble_signal(
     elif region == "model_bullish":
         reason = (
             f"Ensemble: Mispricing — model ({p_raw:.1%}) exceeds market ({p_market:.1%}) by {gap:.1%}"
-            f"{volatility_note}"
         )
     elif region == "model_bearish":
         reason = (
             f"Ensemble: Bearish gap — market ({p_market:.1%}) exceeds model ({p_raw:.1%}) by {(-gap):.1%}"
-            f"{volatility_note}"
         )
     else:
         reason = "No conditions met"
@@ -807,7 +799,8 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
     entry_bucket = int(feature_dict.get("entry_bucket", 60) or 60)
     reversal_risk = float(feature_dict.get("reversal_risk", 0.0) or 0.0)
     confidence = abs(p_market - 0.5) + abs(p_raw - 0.5)
-    if reversal_risk > MAX_MISPRICING_OVERRIDE_RISK:
+    max_mispricing_override = float(AppSettings.get("max_mispricing_override_risk", str(MAX_MISPRICING_OVERRIDE_RISK)) or MAX_MISPRICING_OVERRIDE_RISK)
+    if reversal_risk > max_mispricing_override:
         return no_signal_result(
             p_market=p_market,
             p_raw=p_raw,
@@ -818,8 +811,21 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
             agreement_region="volatility_guard",
             reason=(
                 "Volatility too extreme for mispricing override "
-                f"({reversal_risk:.1%} > {MAX_MISPRICING_OVERRIDE_RISK:.1%} cap)"
+                f"({reversal_risk:.1%} > {max_mispricing_override:.1%} cap)"
             ),
+        )
+
+    cutoff_buffer = float(AppSettings.get("cutoff_buffer", "0.05") or 0.05)
+    if abs(p_raw - yes_cutoff) < cutoff_buffer:
+        return no_signal_result(
+            p_market=p_market,
+            p_raw=p_raw,
+            seconds_to_close=seconds_to_close,
+            entry_bucket=entry_bucket,
+            yes_cutoff=yes_cutoff,
+            no_cutoff=no_cutoff,
+            agreement_region="cutoff_buffer",
+            reason=f"Cutoff buffer: p_raw {p_raw:.1%} within {cutoff_buffer:.1%} of yes_cutoff {yes_cutoff:.1%}",
         )
 
     volatility_guard_active = reversal_risk > max_reversal
