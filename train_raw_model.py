@@ -45,8 +45,6 @@ RAW_FEATURES = [
     "return_3m_x_inv_time",
     "volatility_5m_x_inv_time",
     "bid_ask_spread",
-    "volume_acceleration",
-    "trade_intensity",
     "rsi_14",
     "session",
     "distance_from_strike",

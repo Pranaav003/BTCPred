@@ -262,8 +262,6 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
 
     # --- New features ---
     bid_ask_spread = 0.0  # populated by signal engine later
-    volume_acceleration = (volume_1m / volume_5m) if volume_5m and volume_5m > 0 else 1.0
-    trade_intensity = trade_count_1m
     rsi_14 = _compute_rsi(candles, period=14) if candles is not None and len(candles) >= 14 else 50.0
     session = _trading_session(close_ts)
     distance_from_strike = _distance_from_strike(price_now, market_dict.get("title", ""))
@@ -302,8 +300,6 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
         "return_3m_x_inv_time": float(return_3m_x_inv_time),
         "volatility_5m_x_inv_time": float(volatility_5m_x_inv_time),
         "bid_ask_spread": float(bid_ask_spread),
-        "volume_acceleration": float(volume_acceleration),
-        "trade_intensity": float(trade_intensity),
         "rsi_14": float(rsi_14),
         "session": int(session),
         "distance_from_strike": float(distance_from_strike),
