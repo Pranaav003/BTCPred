@@ -9,6 +9,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+import numpy as np
 import pandas as pd
 
 from app.kalshi_client import PREFERRED_STRIKE, get_active_market, get_candles, get_trades
@@ -92,6 +93,54 @@ def _window(df: pd.DataFrame, start_ts: int, end_ts: int) -> pd.DataFrame:
         return pd.DataFrame(columns=list(df.columns) if df is not None else [])
     ts = pd.to_numeric(df.get("ts"), errors="coerce")
     return df[(ts > int(start_ts)) & (ts <= int(end_ts))].copy()
+
+
+def _compute_rsi(candles_df, period=14):
+    """Compute RSI from minute candle close prices."""
+    if candles_df is None or len(candles_df) < period + 1:
+        return 50.0
+    closes = candles_df["close"].astype(float).values
+    deltas = np.diff(closes)
+    gains = np.where(deltas > 0, deltas, 0.0)
+    losses = np.where(deltas < 0, -deltas, 0.0)
+    avg_gain = np.mean(gains[-period:])
+    avg_loss = np.mean(losses[-period:])
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return float(100.0 - (100.0 / (1.0 + rs)))
+
+
+def _trading_session(close_ts):
+    """Map UTC hour to trading session: 0=Asia, 1=EU, 2=US."""
+    from datetime import datetime, timezone
+    hour = datetime.fromtimestamp(int(close_ts), tz=timezone.utc).hour
+    if 0 <= hour < 8:
+        return 0
+    elif 8 <= hour < 14:
+        return 1
+    elif 14 <= hour < 21:
+        return 2
+    else:
+        return 0
+
+
+def _distance_from_strike(btc_price, market_title):
+    """Extract strike from market title and compute normalized distance."""
+    import re
+    if not btc_price or not market_title:
+        return 0.0
+    match = re.search(r"\$(\d[\d,]*)", market_title)
+    if not match:
+        return 0.0
+    strike_str = match.group(1).replace(",", "")
+    try:
+        strike = float(strike_str)
+    except ValueError:
+        return 0.0
+    if strike == 0:
+        return 0.0
+    return (btc_price - strike) / strike
 
 
 def compute_features(market_dict: dict[str, Any]) -> dict | None:
@@ -202,6 +251,16 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
 
     entry_bucket = _closest_bucket(seconds_to_close)
 
+    # --- New features ---
+    bid_ask_spread = 0.0  # populated by signal engine later
+    volume_acceleration = (volume_1m / volume_5m) if volume_5m and volume_5m > 0 else 1.0
+    trade_intensity = trade_count_1m
+    rsi_14 = _compute_rsi(candles, period=14) if candles is not None and len(candles) >= 14 else 50.0
+    session = _trading_session(close_ts)
+    distance_from_strike = _distance_from_strike(price_now, market_dict.get("title", ""))
+    outcome_rate_bucket = 0.5  # populated from DB
+    return_5m_ratio = (return_1m / return_5m) if return_5m and abs(return_5m) > 1e-8 else 0.0
+
     return {
         "market_ticker": str(ticker),
         "market_title": title,
@@ -233,6 +292,14 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
         "return_1m_x_inv_time": float(return_1m_x_inv_time),
         "return_3m_x_inv_time": float(return_3m_x_inv_time),
         "volatility_5m_x_inv_time": float(volatility_5m_x_inv_time),
+        "bid_ask_spread": float(bid_ask_spread),
+        "volume_acceleration": float(volume_acceleration),
+        "trade_intensity": float(trade_intensity),
+        "rsi_14": float(rsi_14),
+        "session": int(session),
+        "distance_from_strike": float(distance_from_strike),
+        "outcome_rate_bucket": float(outcome_rate_bucket),
+        "return_5m_ratio": float(return_5m_ratio),
     }
 
 
