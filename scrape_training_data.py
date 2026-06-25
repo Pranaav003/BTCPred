@@ -30,8 +30,8 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# Binance Klines endpoint (no auth needed)
-BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
+# Coinbase candle endpoint (US-accessible, no auth needed)
+COINBASE_CANDLES_URL = "https://api.exchange.coinbase.com/products/BTC-USD/candles"
 
 # Kalshi BTC 15-min market parameters
 MARKET_DURATION_SEC = 900  # 15 minutes
@@ -61,64 +61,74 @@ OUTPUT_COLUMNS = RAW_FEATURES + [
 ]
 
 
-# ── Binance data fetching ──────────────────────────────────────────────
+# ── Coinbase data fetching ──────────────────────────────────────────────
 
-def fetch_binance_klines(start_ms: int, end_ms: int, symbol: str = "BTCUSDT", interval: str = "1m") -> pd.DataFrame:
-    """Fetch 1-minute candles from Binance in paginated requests."""
+def fetch_coinbase_candles(start_sec: int, end_sec: int, product: str = "BTC-USD") -> pd.DataFrame:
+    """Fetch 1-minute candles from Coinbase in paginated requests.
+
+    Coinbase returns candles as [timestamp, low, high, open, close, volume]
+    sorted newest-first, max 300 per request.
+    """
     import urllib.request
     import urllib.parse
 
     all_rows = []
-    current_start = start_ms
-    limit = 1000
+    # Coinbase granularity=60 = 1-minute candles, max 300 per request
+    chunk_seconds = 300 * 60  # 300 candles × 60s = 5 hours per request
 
-    while current_start < end_ms:
+    current_start = start_sec
+    while current_start < end_sec:
+        current_end = min(current_start + chunk_seconds, end_sec)
+        start_iso = datetime.fromtimestamp(current_start, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_iso = datetime.fromtimestamp(current_end, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         params = urllib.parse.urlencode({
-            "symbol": symbol,
-            "interval": interval,
-            "startTime": current_start,
-            "endTime": end_ms,
-            "limit": limit,
+            "granularity": 60,
+            "start": start_iso,
+            "end": end_iso,
         })
-        url = f"{BINANCE_KLINES_URL}?{params}"
+        url = f"{COINBASE_CANDLES_URL}?{params}"
 
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "BTCPred/1.0"})
             with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode())
         except Exception as exc:
-            logger.warning("Binance request failed: %s — retrying after 2s", exc)
+            logger.warning("Coinbase request failed: %s — retrying after 2s", exc)
             time.sleep(2)
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": "BTCPred/1.0"})
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     data = json.loads(resp.read().decode())
             except Exception:
-                logger.error("Binance request failed twice, stopping pagination")
+                logger.error("Coinbase request failed twice, stopping pagination")
                 break
 
         if not data:
-            break
+            current_start = current_end
+            continue
 
+        # Coinbase format: [timestamp, low, high, open, close, volume]
         for row in data:
             all_rows.append({
-                "open_time": row[0],
-                "open": float(row[1]),
+                "ts": int(row[0]),
+                "open": float(row[3]),
                 "high": float(row[2]),
-                "low": float(row[3]),
+                "low": float(row[1]),
                 "close": float(row[4]),
                 "volume": float(row[5]),
-                "close_time": row[6],
-                "quote_volume": float(row[7]),
-                "trades": int(row[8]),
             })
 
-        # Move to next page
-        last_close_time = data[-1][6]
-        if last_close_time >= end_ms:
-            break
-        current_start = last_close_time + 1
-        time.sleep(0.2)  # rate limit courtesy
+        current_start = current_end
+        time.sleep(0.3)  # rate limit courtesy
+
+    if not all_rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(all_rows)
+    df = df.drop_duplicates(subset=["ts"]).sort_values("ts").reset_index(drop=True)
+    logger.info("Fetched %d candles from Coinbase", len(df))
+    return df
 
     if not all_rows:
         return pd.DataFrame()
@@ -422,11 +432,11 @@ def main():
                         help="Snapshots per market (1-4, default: 4)")
     args = parser.parse_args()
 
-    end_ms = int(time.time() * 1000)
-    start_ms = end_ms - (args.days * 24 * 3600 * 1000)
+    end_sec = int(time.time())
+    start_sec = end_sec - (args.days * 24 * 3600)
 
-    logger.info("Fetching %d days of BTC 1-minute candles from Binance...", args.days)
-    candles = fetch_binance_klines(start_ms, end_ms)
+    logger.info("Fetching %d days of BTC 1-minute candles from Coinbase...", args.days)
+    candles = fetch_coinbase_candles(start_sec, end_sec)
     if candles.empty:
         logger.error("No candle data fetched — cannot proceed")
         sys.exit(1)
