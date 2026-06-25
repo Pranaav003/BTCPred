@@ -15,6 +15,7 @@
                 <div class="trade-direction-pills">
                     <span class="trade-price-pill up" id="up-price-pill">Up --</span>
                     <span class="trade-price-pill down" id="down-price-pill">Down --</span>
+                    <span class="spread-pill" id="spread-display">--</span>
                 </div>
             </div>
         </div>
@@ -182,6 +183,10 @@
                         <span class="text-muted">Net Profit</span>
                         <span class="mono text-success" id="payout-net-profit">+$0.00</span>
                     </div>
+                    <div class="trade-payout-row">
+                        <span class="text-muted">Expected Value</span>
+                        <span class="mono" id="ev-display">--</span>
+                    </div>
                 </div>
                 <p class="text-warning hidden" id="entry-filter-warning">⚠ Entry filter active — this trade would not auto-fire.</p>
                 <p class="text-warning hidden" id="no-leverage-warning">⚠ High leverage — NO contracts are cheap but unlikely to win</p>
@@ -248,6 +253,17 @@
         <div class="settings-actions">
             <button type="button" class="btn-ghost" id="no-trade-risk-cancel-btn">Cancel</button>
             <button type="button" class="btn-danger" id="no-trade-risk-confirm-btn">Buy NO Anyway</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="trade-confirm-modal">
+    <div class="modal-card">
+        <h3>Confirm Trade</h3>
+        <p id="trade-confirm-text">--</p>
+        <div class="modal-actions">
+            <button type="button" class="btn-ghost" id="trade-confirm-cancel">Cancel</button>
+            <button type="button" class="btn-primary" id="trade-confirm-ok">Place Trade</button>
         </div>
     </div>
 </div>
