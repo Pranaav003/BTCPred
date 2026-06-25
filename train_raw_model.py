@@ -52,6 +52,11 @@ RAW_FEATURES = [
     "distance_from_strike",
     "outcome_rate_bucket",
     "return_5m_ratio",
+    "was_missing_return_1m",
+    "was_missing_return_3m",
+    "was_missing_return_5m",
+    "was_missing_volatility_3m",
+    "was_missing_volatility_5m",
 ]
 
 

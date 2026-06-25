@@ -192,6 +192,11 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
     price_3m = _price_at_offset(candles, snapshot_ts, 180)
     price_5m = _price_at_offset(candles, snapshot_ts, 300)
 
+    # Missingness indicators for return features (capture before fallback)
+    was_missing_return_1m = 1 if price_1m is None else 0
+    was_missing_return_3m = 1 if price_3m is None else 0
+    was_missing_return_5m = 1 if price_5m is None else 0
+
     price_1m = price_now if price_1m is None else price_1m
     price_3m = price_now if price_3m is None else price_3m
     price_5m = price_now if price_5m is None else price_5m
@@ -209,6 +214,10 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
 
     volatility_3m = _safe_std(c3.get("close", pd.Series(dtype="float64")))
     volatility_5m = _safe_std(c5.get("close", pd.Series(dtype="float64")))
+
+    # Missingness indicators for volatility features
+    was_missing_volatility_3m = 1 if len(c3) < 2 else 0
+    was_missing_volatility_5m = 1 if len(c5) < 2 else 0
 
     if c5.empty:
         range_5m = 0.0
@@ -300,6 +309,11 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
         "distance_from_strike": float(distance_from_strike),
         "outcome_rate_bucket": float(outcome_rate_bucket),
         "return_5m_ratio": float(return_5m_ratio),
+        "was_missing_return_1m": int(was_missing_return_1m),
+        "was_missing_return_3m": int(was_missing_return_3m),
+        "was_missing_return_5m": int(was_missing_return_5m),
+        "was_missing_volatility_3m": int(was_missing_volatility_3m),
+        "was_missing_volatility_5m": int(was_missing_volatility_5m),
     }
 
 
