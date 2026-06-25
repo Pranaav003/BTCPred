@@ -563,6 +563,7 @@ async function loadModelInfo() {
             const raw = data.model_type || "Unknown";
             let label = raw;
             if (raw === "RandomForest") label = "Random Forest";
+            else if (raw === "CalibratedRandomForest") label = "Calibrated RF";
             else if (raw === "XGBoost" || raw === "XGBClassifier") label = "XGBoost";
             typeBadge.textContent = label;
         }
