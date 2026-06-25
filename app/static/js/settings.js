@@ -557,7 +557,21 @@ async function loadModelInfo() {
     try {
         const res = await fetch("/api/model-info", { headers: { Accept: "application/json" } });
         const data = await res.json();
-        if (!data.loaded) return;
+        if (!data.loaded) {
+            // Show why the model isn't loading
+            const statusEl = document.getElementById("model-upload-status");
+            if (statusEl && data.error) {
+                statusEl.textContent = `⚠ Model not loaded: ${data.error}`;
+                statusEl.className = "warning-banner warning-banner-danger";
+                statusEl.classList.remove("hidden");
+            }
+            return;
+        }
+        // Clear any previous error
+        const statusEl = document.getElementById("model-upload-status");
+        if (statusEl && statusEl.textContent.startsWith("⚠")) {
+            statusEl.classList.add("hidden");
+        }
         const typeBadge = document.getElementById("model-type-badge");
         if (typeBadge) {
             const raw = data.model_type || "Unknown";

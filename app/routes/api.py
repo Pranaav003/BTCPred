@@ -270,8 +270,8 @@ def metrics():
 def model_info():
     try:
         bundle = get_model()
-    except RuntimeError:
-        return jsonify({"loaded": False})
+    except RuntimeError as exc:
+        return jsonify({"loaded": False, "error": str(exc)})
 
     metrics = bundle.get("test_metrics", {})
     return jsonify(
@@ -293,6 +293,24 @@ def model_info():
             "version_mismatch": bundle.get("sklearn_version") != sklearn.__version__,
         }
     )
+
+
+@api_bp.route("/model/artifact-status")
+def model_artifact_status():
+    """Check whether a model artifact row exists in the DB (for debugging upload issues)."""
+    from app.models import ModelArtifact
+
+    artifact = ModelArtifact.query.filter_by(name="default").first()
+    if artifact is None:
+        return jsonify({"exists": False})
+    return jsonify({
+        "exists": True,
+        "data_length": len(artifact.data) if artifact.data else 0,
+        "uploaded_at": artifact.uploaded_at.isoformat() if artifact.uploaded_at else None,
+        "size_bytes": artifact.size_bytes,
+        "model_type": artifact.model_type,
+        "accuracy": artifact.accuracy,
+    })
 
 
 @api_bp.route("/model/reload", methods=["POST"])
