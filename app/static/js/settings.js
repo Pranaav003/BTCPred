@@ -30,6 +30,36 @@ function showSettingsToast(message, type = "success") {
     }, 3000);
 }
 
+function customConfirm(message) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById("custom-confirm-modal");
+        const body = document.getElementById("custom-confirm-body");
+        const confirmBtn = document.getElementById("custom-confirm-ok");
+        const cancelBtn = document.getElementById("custom-confirm-cancel");
+        if (!modal || !body || !confirmBtn || !cancelBtn) {
+            resolve(window.confirm(message));
+            return;
+        }
+        body.textContent = message;
+        modal.style.display = "flex";
+
+        function cleanup() {
+            modal.style.display = "none";
+            confirmBtn.removeEventListener("click", onConfirm);
+            cancelBtn.removeEventListener("click", onCancel);
+            modal.removeEventListener("click", onBackdrop);
+        }
+
+        function onConfirm() { cleanup(); resolve(true); }
+        function onCancel() { cleanup(); resolve(false); }
+        function onBackdrop(e) { if (e.target === modal) { cleanup(); resolve(false); } }
+
+        confirmBtn.addEventListener("click", onConfirm);
+        cancelBtn.addEventListener("click", onCancel);
+        modal.addEventListener("click", onBackdrop);
+    });
+}
+
 function toTitleCase(name) {
     return String(name || "")
         .split("_")
@@ -352,13 +382,13 @@ function renderRiskProfiles() {
         });
     });
     Array.from(grid.querySelectorAll(".profile-edit-btn")).forEach((btn) => {
-        btn.addEventListener("click", (event) => {
+        btn.addEventListener("click", async (event) => {
             event.preventDefault();
             event.stopPropagation();
             const profileName = String(btn.getAttribute("data-edit-profile") || "");
             if (!profileName) return;
             if (settingsState.editingProfile && settingsState.editingProfile !== profileName && profileDirty(settingsState.editingProfile)) {
-                const okay = window.confirm("Discard unsaved changes on current profile?");
+                const okay = await customConfirm("Discard unsaved changes on current profile?");
                 if (!okay) return;
             }
             settingsState.editingProfile = profileName;
@@ -376,12 +406,12 @@ function renderRiskProfiles() {
         });
     });
     Array.from(grid.querySelectorAll("[data-profile-cancel]")).forEach((btn) => {
-        btn.addEventListener("click", (event) => {
+        btn.addEventListener("click", async (event) => {
             event.preventDefault();
             event.stopPropagation();
             const profileName = String(btn.getAttribute("data-profile-cancel") || "");
             if (profileDirty(profileName)) {
-                const okay = window.confirm("Discard unsaved changes?");
+                const okay = await customConfirm("Discard unsaved changes?");
                 if (!okay) return;
             }
             settingsState.editingProfile = null;
@@ -431,7 +461,7 @@ function renderRiskProfiles() {
             event.stopPropagation();
             const profileName = String(btn.getAttribute("data-profile-reset") || "");
             if (!profileName) return;
-            const ok = window.confirm(`Reset ${toTitleCase(profileName)} to default values? This cannot be undone.`);
+            const ok = await customConfirm(`Reset ${toTitleCase(profileName)} to default values? This cannot be undone.`);
             if (!ok) return;
             try {
                 const response = await fetch(`/api/risk-profiles/${profileName}/reset`, {

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Kalshi Signal{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">{% endblock %}
 
 {% block content %}
 {% if model_age_days and model_age_days > 7 %}

@@ -1,0 +1,294 @@
+/* ==========================================================================
+   analytics.css — Analytics layout, mispricing strategy, strategy comparison,
+   backtest bars, metrics grid
+   ========================================================================== */
+
+.analytics-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+}
+
+#panel-mispricing-strategy {
+    border: 1px solid rgba(34, 197, 94, 0.22);
+    background: linear-gradient(180deg, rgba(34, 197, 94, 0.06) 0%, var(--card-bg) 38%);
+}
+
+.panel-head.panel-head-stack {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-bottom: var(--space-3);
+}
+
+/* -- Mispricing strategy ------------------------------------------------- */
+
+.mispricing-strategy-title {
+    margin: 0;
+    font-size: 1.35rem;
+    letter-spacing: -0.02em;
+}
+
+.mispricing-strategy-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+}
+
+.mispricing-strategy-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-5);
+    align-items: start;
+}
+
+/* -- MP (Mispricing) section --------------------------------------------- */
+
+.mp-section-title {
+    margin: 0 0 var(--space-3) 0;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+}
+
+.mp-stat-block {
+    margin-bottom: var(--space-4);
+}
+
+.mp-stat-block-title {
+    margin: 0 0 var(--space-2) 0;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.mp-mini-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+}
+
+.mp-mini-table th,
+.mp-mini-table td {
+    padding: 6px 8px;
+    text-align: right;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mp-mini-table th {
+    text-align: right;
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.mp-mini-table th:first-child,
+.mp-mini-table td:first-child {
+    text-align: left;
+}
+
+.mp-combined-line {
+    margin: var(--space-3) 0 0 0;
+    font-size: 0.88rem;
+    line-height: 1.4;
+}
+
+.mp-backtest-section {
+    min-width: 0;
+}
+
+/* -- MP bar list ---------------------------------------------------------- */
+
+.mp-bar-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.mp-bar-row {
+    display: grid;
+    grid-template-columns: 88px 1fr minmax(0, 1.2fr);
+    gap: 10px;
+    align-items: center;
+    font-size: 0.8rem;
+}
+
+.mp-bar-row--highlight {
+    padding: 8px;
+    margin: 0 -8px 4px -8px;
+    border-radius: 8px;
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px solid rgba(34, 197, 94, 0.28);
+}
+
+.mp-bar-label {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.mp-bar-track {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.mp-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #3b82f6, #22c55e);
+    min-width: 0;
+    transition: width 0.4s ease;
+}
+
+.mp-bar-row--highlight .mp-bar-fill {
+    background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.mp-bar-meta {
+    color: var(--text-secondary);
+    font-size: 0.76rem;
+    line-height: 1.3;
+    text-align: right;
+}
+
+.mp-recommend-line {
+    margin: var(--space-4) 0 0 0;
+    font-size: 0.86rem;
+    line-height: 1.45;
+}
+
+/* -- Strategy comparison ------------------------------------------------- */
+
+.strategy-compare-callout {
+    padding: var(--space-4);
+    border-radius: var(--radius-md);
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border);
+}
+
+.strategy-compare-heading {
+    margin: 0 0 var(--space-3) 0;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+.strategy-compare-cols {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-3);
+}
+
+.strategy-compare-col {
+    padding: var(--space-3);
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    text-align: center;
+}
+
+.strategy-compare-col h4 {
+    margin: 0 0 2px 0;
+    font-size: 0.95rem;
+}
+
+.strategy-compare-col .strategy-compare-sub {
+    margin: 0 0 var(--space-3) 0;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.strategy-compare-metric {
+    margin: 0 0 6px 0;
+    font-size: 0.9rem;
+}
+
+.strategy-compare-ev {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+}
+
+.strategy-col-agreement {
+    background: rgba(239, 68, 68, 0.08);
+    border-color: rgba(239, 68, 68, 0.28);
+}
+
+.strategy-col-noside {
+    background: rgba(245, 158, 11, 0.1);
+    border-color: rgba(245, 158, 11, 0.35);
+}
+
+.strategy-col-mispricing {
+    background: rgba(34, 197, 94, 0.12);
+    border-color: rgba(34, 197, 94, 0.35);
+}
+
+/* -- Mispricing mode footer ---------------------------------------------- */
+
+.mispricing-mode-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding-top: var(--space-2);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mispricing-mode-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+/* -- Analytics metrics & rows -------------------------------------------- */
+
+.analytics-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: var(--space-4);
+}
+
+.analytics-row-60-40 {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    gap: var(--space-4);
+}
+
+.analytics-row-50-50 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+}
+
+.analytics-panel {
+    min-height: 360px;
+}
+
+/* -- Responsive ---------------------------------------------------------- */
+
+@media (max-width: 900px) {
+    .mispricing-strategy-split {
+        grid-template-columns: 1fr;
+    }
+
+    .strategy-compare-cols {
+        grid-template-columns: 1fr;
+    }
+
+    .mp-bar-row {
+        grid-template-columns: 1fr;
+        gap: 6px;
+    }
+
+    .mp-bar-meta {
+        text-align: left;
+    }
+}
