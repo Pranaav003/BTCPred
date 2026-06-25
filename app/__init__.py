@@ -27,19 +27,13 @@ def create_app(config_name: str | None = None) -> Flask:
 
     # Import models after db initialization so metadata is registered.
     from app import models  # noqa: F401
-    from app.db_helpers import seed_default_settings
+    from app.db_helpers import seed_default_settings, set_setting
 
     with app.app_context():
         db.create_all()
         seed_default_settings()
         # Scheduler starts automatically; auto-trade requires explicit user activation for safety.
-        from app.models import AppSettings
-        row = AppSettings.query.filter_by(key="scheduler_running").first()
-        if row:
-            row.value = "true"
-        else:
-            db.session.add(AppSettings(key="scheduler_running", value="true"))
-        db.session.commit()
+        set_setting("scheduler_running", "true")
 
     app.scheduler_instance = None
     app.register_blueprint(dashboard_bp)

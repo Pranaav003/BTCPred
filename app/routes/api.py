@@ -17,7 +17,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
 
-from app.db_helpers import export_training_data, get_probability_history, get_recent_signals, get_signal_metrics
+from app.db_helpers import export_training_data, get_probability_history, get_recent_signals, get_signal_metrics, get_setting, set_setting
 from app.feature_engineering import get_live_snapshot
 from app.kalshi_client import get_active_market, get_btc_price, get_market_prices
 from app.model_loader import clear_model_cache, get_model, save_model_to_db
@@ -342,7 +342,7 @@ def model_upload():
 @api_bp.route("/scheduler/start", methods=["POST"])
 def scheduler_start():
     try:
-        AppSettings.set_value("scheduler_running", "true")
+        set_setting("scheduler_running", "true")
         return jsonify({"status": "started"})
     except SQLAlchemyError:
         return jsonify({"status": "error"}), 500
@@ -351,7 +351,7 @@ def scheduler_start():
 @api_bp.route("/scheduler/stop", methods=["POST"])
 def scheduler_stop():
     try:
-        AppSettings.set_value("scheduler_running", "false")
+        set_setting("scheduler_running", "false")
         return jsonify({"status": "stopped"})
     except SQLAlchemyError:
         return jsonify({"status": "error"}), 500
@@ -359,9 +359,9 @@ def scheduler_stop():
 
 @api_bp.route("/scheduler/status", methods=["GET"])
 def scheduler_status():
-    running = AppSettings.get_value("scheduler_running", "false") == "true"
-    poll_interval = int(AppSettings.get_value("poll_interval_seconds", "30"))
-    auto_trade_enabled = AppSettings.get_value("auto_trade_enabled", "false") == "true"
+    running = get_setting("scheduler_running", "false") == "true"
+    poll_interval = int(get_setting("poll_interval_seconds", "30"))
+    auto_trade_enabled = get_setting("auto_trade_enabled", "false") == "true"
     return jsonify(
         {
             "running": running,
@@ -574,7 +574,7 @@ def analytics_agreement_regions():
 
 @api_bp.route("/analytics/mispricing-backtest", methods=["GET"])
 def analytics_mispricing_backtest():
-    threshold = float(AppSettings.get_value("mispricing_threshold", str(MISPRICING_THRESHOLD)) or MISPRICING_THRESHOLD)
+    threshold = float(get_setting("mispricing_threshold", str(MISPRICING_THRESHOLD)) or MISPRICING_THRESHOLD)
     rows = (
         db.session.query(
             Signal.p_market,
@@ -918,12 +918,12 @@ def update_settings():
         if key in boolean_keys:
             normalized = str(value).lower()
             normalized = "true" if normalized in {"true", "1", "yes", "on"} else "false"
-            AppSettings.set_value(key, normalized)
+            set_setting(key, normalized)
         elif key == "signal_mode":
             mode = (str(value).strip().lower() or "agreement")
             if mode == "ensemble_vote":
                 mode = "ensemble"
-            AppSettings.set_value(key, mode if mode in {"agreement", "mispricing", "ensemble"} else "agreement")
+            set_setting(key, mode if mode in {"agreement", "mispricing", "ensemble"} else "agreement")
         elif key == "mispricing_threshold":
             try:
                 threshold_val = float(value)
@@ -931,7 +931,7 @@ def update_settings():
                 errors.append("mispricing_threshold must be numeric")
                 continue
             threshold_val = max(0.05, min(0.30, threshold_val))
-            AppSettings.set_value(key, f"{threshold_val:.4f}")
+            set_setting(key, f"{threshold_val:.4f}")
         elif key in {"max_entry_price_yes", "max_entry_price_no"}:
             try:
                 max_entry = float(value)
@@ -939,7 +939,7 @@ def update_settings():
                 errors.append(f"{key} must be numeric")
                 continue
             max_entry = max(0.55, min(1.0, max_entry))
-            AppSettings.set_value(key, f"{max_entry:.4f}")
+            set_setting(key, f"{max_entry:.4f}")
         elif key == "min_expected_profit":
             try:
                 min_profit = float(value)
@@ -947,7 +947,7 @@ def update_settings():
                 errors.append("min_expected_profit must be numeric")
                 continue
             min_profit = max(0.0, min(1.0, min_profit))
-            AppSettings.set_value(key, f"{min_profit:.4f}")
+            set_setting(key, f"{min_profit:.4f}")
         elif key == "max_reversal_risk":
             try:
                 max_reversal = float(value)
@@ -955,7 +955,7 @@ def update_settings():
                 errors.append("max_reversal_risk must be numeric")
                 continue
             max_reversal = max(0.20, min(1.0, max_reversal))
-            AppSettings.set_value(key, f"{max_reversal:.4f}")
+            set_setting(key, f"{max_reversal:.4f}")
         elif key == "max_daily_loss":
             try:
                 max_loss = float(value)
@@ -963,7 +963,7 @@ def update_settings():
                 errors.append("max_daily_loss must be numeric")
                 continue
             max_loss = max(1.0, min(1_000_000.0, max_loss))
-            AppSettings.set_value(key, f"{max_loss:.2f}")
+            set_setting(key, f"{max_loss:.2f}")
         elif key == "live_trade_size":
             try:
                 live_size = float(value)
@@ -971,7 +971,7 @@ def update_settings():
                 errors.append("live_trade_size must be numeric")
                 continue
             live_size = max(1.0, min(500.0, live_size))
-            AppSettings.set_value(key, f"{live_size:.2f}")
+            set_setting(key, f"{live_size:.2f}")
         elif key == "high_conviction_volatility_override":
             try:
                 override_cutoff = float(value)
@@ -979,9 +979,9 @@ def update_settings():
                 errors.append("high_conviction_volatility_override must be numeric")
                 continue
             override_cutoff = max(0.60, min(1.0, override_cutoff))
-            AppSettings.set_value(key, f"{override_cutoff:.4f}")
+            set_setting(key, f"{override_cutoff:.4f}")
         else:
-            AppSettings.set_value(key, str(value))
+            set_setting(key, str(value))
         updated.append(key)
 
     return jsonify({"updated": updated, "errors": errors})
@@ -989,7 +989,7 @@ def update_settings():
 
 @api_bp.route("/risk-profiles", methods=["GET"])
 def risk_profiles():
-    active = AppSettings.get_value("risk_profile", "moderate") or "moderate"
+    active = get_setting("risk_profile", "moderate") or "moderate"
     if active not in RISK_PROFILES:
         active = "moderate"
     profile_meta = {
@@ -1004,7 +1004,7 @@ def risk_profiles():
         merged.update(profile_meta.get(name, {"recommended": False, "validated": False}))
         customized_fields: list[str] = []
         for field in PROFILE_OVERRIDE_FIELDS:
-            if AppSettings.get_value(f"profile_override_{name}_{field}") is not None:
+            if get_setting(f"profile_override_{name}_{field}") is not None:
                 customized_fields.append(field)
         merged["customized"] = bool(customized_fields)
         merged["customized_fields"] = customized_fields
@@ -1036,11 +1036,11 @@ def save_risk_profile(profile_name: str):
     early_cutoff = payload.get("early_entry_cutoff")
     description = payload.get("description")
 
-    AppSettings.set_value(f"profile_override_{profile_name}_yes_cutoff", f"{max(0.50, min(0.90, yes_cutoff)):.4f}")
-    AppSettings.set_value(f"profile_override_{profile_name}_no_cutoff", f"{max(0.10, min(0.50, no_cutoff)):.4f}")
-    AppSettings.set_value(f"profile_override_{profile_name}_min_seconds", str(max(0, min(300, min_seconds))))
-    AppSettings.set_value(f"profile_override_{profile_name}_max_seconds", str(max(60, min(900, max_seconds))))
-    AppSettings.set_value(f"profile_override_{profile_name}_early_entry_enabled", "true" if early_entry_enabled else "false")
+    set_setting(f"profile_override_{profile_name}_yes_cutoff", f"{max(0.50, min(0.90, yes_cutoff)):.4f}")
+    set_setting(f"profile_override_{profile_name}_no_cutoff", f"{max(0.10, min(0.50, no_cutoff)):.4f}")
+    set_setting(f"profile_override_{profile_name}_min_seconds", str(max(0, min(300, min_seconds))))
+    set_setting(f"profile_override_{profile_name}_max_seconds", str(max(60, min(900, max_seconds))))
+    set_setting(f"profile_override_{profile_name}_early_entry_enabled", "true" if early_entry_enabled else "false")
 
     if early_entry_enabled:
         try:
@@ -1049,15 +1049,15 @@ def save_risk_profile(profile_name: str):
             early_cutoff_float = float(early_cutoff if early_cutoff is not None else yes_cutoff)
         except (TypeError, ValueError):
             return jsonify({"error": "Early entry fields must be numeric when early entry is enabled"}), 400
-        AppSettings.set_value(
+        set_setting(
             f"profile_override_{profile_name}_early_entry_min_seconds",
             str(max(0, min(600, early_min_int))),
         )
-        AppSettings.set_value(
+        set_setting(
             f"profile_override_{profile_name}_early_entry_max_seconds",
             str(max(0, min(900, early_max_int))),
         )
-        AppSettings.set_value(
+        set_setting(
             f"profile_override_{profile_name}_early_entry_cutoff",
             f"{max(0.50, min(0.99, early_cutoff_float)):.4f}",
         )
@@ -1073,7 +1073,7 @@ def save_risk_profile(profile_name: str):
         db.session.commit()
 
     if description is not None:
-        AppSettings.set_value(f"profile_override_{profile_name}_description", str(description))
+        set_setting(f"profile_override_{profile_name}_description", str(description))
     return jsonify({"saved": True, "profile": profile_name})
 
 
@@ -1103,7 +1103,7 @@ def live_snapshot():
     signal = signal_to_dict(result) if result else {}
     # Dashboard time-window UI must match the same profile merge as evaluate_live_signal —
     # do not rely on a separate GET /api/settings timing (two tabs / envs diverged badly).
-    risk_key = (AppSettings.get_value("risk_profile", "moderate") or "moderate").strip().lower()
+    risk_key = (get_setting("risk_profile", "moderate") or "moderate").strip().lower()
     profile = get_profile(risk_key)
     merged = {
         **snapshot,
@@ -1262,7 +1262,7 @@ def live_reconcile():
 @api_bp.route("/live/test-order", methods=["POST"])
 def live_test_order():
     """Verify API keys by fetching balance (no order placed)."""
-    if AppSettings.get_value("live_trading_enabled", "false") == "true":
+    if get_setting("live_trading_enabled", "false") == "true":
         return jsonify({"error": "Cannot test while live trading is enabled"}), 400
     if not is_configured():
         return jsonify({"error": "API keys not configured"}), 400

@@ -60,7 +60,7 @@ _stub("app.models",
       Signal=MagicMock(),
       TradeSnapshot=MagicMock(),
       db=MagicMock())
-_stub("app.db_helpers", get_or_create_market=MagicMock())
+_stub("app.db_helpers", get_or_create_market=MagicMock(), get_setting=lambda k, d=None: d, set_setting=lambda k, v: None)
 _stub("app.feature_engineering", get_live_snapshot=lambda: None)
 _stub("app.kalshi_client", get_active_market=lambda: None)
 _stub("app.model_loader", predict_proba_raw=lambda _: 0.5)

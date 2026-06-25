@@ -15,6 +15,51 @@ from app.models import AppSettings, Market, PaperTrade, Portfolio, Signal, db
 logger = logging.getLogger(__name__)
 
 
+def get_setting(key: str, default: str | None = None) -> str | None:
+    """Get an AppSettings value by key, with optional default.
+
+    Standalone function instead of classmethod because SQLAlchemy's
+    declarative metaclass on Python 3.14 can shadow or remove
+    classmethods defined on db.Model subclasses.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        row = AppSettings.query.filter_by(key=key).first()
+        return row.value if row else default
+    except SQLAlchemyError:
+        db.session.rollback()
+        try:
+            row = AppSettings.query.filter_by(key=key).first()
+            return row.value if row else default
+        except SQLAlchemyError:
+            db.session.rollback()
+            return default
+
+
+def set_setting(key: str, value: str | None) -> AppSettings:
+    """Upsert an AppSettings row and persist it.
+
+    Standalone function instead of classmethod because SQLAlchemy's
+    declarative metaclass on Python 3.14 can shadow or remove
+    classmethods defined on db.Model subclasses.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        row = AppSettings.query.filter_by(key=key).first()
+        if row is None:
+            row = AppSettings(key=key, value=value)
+            db.session.add(row)
+        else:
+            row.value = value
+        db.session.commit()
+        return row
+    except SQLAlchemyError:
+        db.session.rollback()
+        raise
+
+
 def _utc_iso_z(value: datetime | None) -> str | None:
     """Serialize datetime as UTC ISO string with trailing Z."""
     if value is None:
@@ -234,21 +279,16 @@ def seed_default_settings() -> None:
     }
 
     for key, value in defaults.items():
-        existing = AppSettings.query.filter_by(key=key).first()
-        if existing is None:
-            db.session.add(AppSettings(key=key, value=value))
-    db.session.commit()
+        if get_setting(key) is None:
+            set_setting(key, value)
 
     # Correct mispricing threshold if set to an unreasonably high value
     # that would prevent mispricing signals from ever firing.
-    threshold_row = AppSettings.query.filter_by(key="mispricing_threshold").first()
-    if threshold_row and threshold_row.value and float(threshold_row.value) > 0.20:
-        old_val = threshold_row.value
-        threshold_row.value = "0.10"
-        db.session.commit()
-        import logging
-        logging.getLogger(__name__).info(
-            "Corrected mispricing_threshold from %s to 0.10 (above 20%% rarely fires)", old_val
+    current_threshold = get_setting("mispricing_threshold")
+    if current_threshold and float(current_threshold) > 0.20:
+        set_setting("mispricing_threshold", "0.10")
+        logger.info(
+            "Corrected mispricing_threshold from %s to 0.10 (above 20%% rarely fires)", current_threshold
         )
 
 

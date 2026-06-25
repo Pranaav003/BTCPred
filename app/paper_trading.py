@@ -8,10 +8,10 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
 
-from app.db_helpers import get_or_create_market
+from app.db_helpers import get_or_create_market, get_setting
 from app.feature_engineering import get_live_snapshot
 from app.kalshi_client import get_active_market
-from app.models import AppSettings, Market, PaperTrade, Portfolio, Signal, TradeSnapshot, db
+from app.models import Market, PaperTrade, Portfolio, Signal, TradeSnapshot, db
 from app.signal_engine import MIN_ENTRY_PRICE
 
 logger = logging.getLogger(__name__)
@@ -251,7 +251,7 @@ def execute_paper_trade(
     if normalized_side not in {"YES", "NO"}:
         return {"error": "Invalid side. Must be YES or NO."}
 
-    max_daily_loss = float(AppSettings.get_value("max_daily_loss", "50.0") or 50.0)
+    max_daily_loss = float(get_setting("max_daily_loss", "50.0") or 50.0)
     if max_daily_loss > 0:
         today_realized = get_realized_pnl_today_utc()
         if today_realized <= -max_daily_loss:
@@ -343,8 +343,8 @@ def execute_paper_trade(
     # Safety net for auto-trades: enforce max-entry caps at execution time
     # using the latest price, not only signal-generation-time price.
     if signal_triggered:
-        max_entry_yes = float(AppSettings.get_value("max_entry_price_yes", "0.85") or 0.85)
-        max_entry_no = float(AppSettings.get_value("max_entry_price_no", "0.85") or 0.85)
+        max_entry_yes = float(get_setting("max_entry_price_yes", "0.85") or 0.85)
+        max_entry_no = float(get_setting("max_entry_price_no", "0.85") or 0.85)
         if normalized_side == "YES" and entry_price > max_entry_yes:
             logger.info(
                 "Auto-trade blocked at execution: YES entry %.3f exceeds max %.3f",
@@ -371,7 +371,7 @@ def execute_paper_trade(
         if base_size <= 0:
             return {"error": "Dollar amount must be greater than zero."}
         if use_dynamic_sizing:
-            mode = (signal_mode or AppSettings.get_value("signal_mode", "agreement") or "agreement").lower()
+            mode = (signal_mode or get_setting("signal_mode", "agreement") or "agreement").lower()
             mg: float
             if mispricing_gap is not None:
                 mg = float(mispricing_gap)
@@ -478,7 +478,7 @@ def get_portfolio_summary():
     base = float(portfolio.starting_balance or 0.0)
     total_return_pct = ((cash_value - base) / base * 100.0) if base else 0.0
 
-    max_daily = float(AppSettings.get_value("max_daily_loss", "50.0") or 50.0)
+    max_daily = float(get_setting("max_daily_loss", "50.0") or 50.0)
     today_net = get_realized_pnl_today_utc() if max_daily > 0 else 0.0
     loss_blocked = bool(max_daily > 0 and today_net <= -max_daily)
 

@@ -276,34 +276,3 @@ class ModelArtifact(db.Model):
     size_bytes = db.Column(db.Integer, nullable=True)
     model_type = db.Column(db.String(64), nullable=True)
     accuracy = db.Column(db.Float, nullable=True)
-
-    @classmethod
-    def get_value(cls, key: str, default: str | None = None) -> str | None:
-        """Get setting value by key or return default."""
-        try:
-            row = cls.query.filter_by(key=key).first()
-            return row.value if row else default
-        except SQLAlchemyError:
-            db.session.rollback()
-            try:
-                row = cls.query.filter_by(key=key).first()
-                return row.value if row else default
-            except SQLAlchemyError:
-                db.session.rollback()
-                return default
-
-    @classmethod
-    def set_value(cls, key: str, value: str | None) -> "AppSettings":
-        """Upsert a setting and persist it."""
-        try:
-            row = cls.query.filter_by(key=key).first()
-            if row is None:
-                row = cls(key=key, value=value)
-                db.session.add(row)
-            else:
-                row.value = value
-            db.session.commit()
-            return row
-        except SQLAlchemyError:
-            db.session.rollback()
-            raise

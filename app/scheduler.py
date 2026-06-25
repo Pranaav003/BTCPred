@@ -10,10 +10,10 @@ from datetime import datetime, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app.db_helpers import export_training_data, get_or_create_market, save_signal
+from app.db_helpers import export_training_data, get_or_create_market, get_setting, save_signal, set_setting
 from app.feature_engineering import get_live_snapshot
 from app.kalshi_client import get_active_market, get_btc_price, get_market_prices
-from app.models import AppSettings, PaperTrade
+from app.models import PaperTrade
 from app.paper_trading import execute_paper_trade, get_realized_pnl_today_utc
 from app.kalshi_auth import is_configured as kalshi_configured
 from app.resolver import resolve_pending_markets, resolve_live_trades
@@ -36,7 +36,7 @@ _COOLDOWN_SCHEDULE = [60, 120, 240, 300]
 
 def _auto_trade_allowed_by_daily_loss() -> bool:
     """False when net realized PnL from exits today (UTC) is at or below -max_daily_loss."""
-    max_daily_loss = float(AppSettings.get_value("max_daily_loss", "50.0") or 50.0)
+    max_daily_loss = float(get_setting("max_daily_loss", "50.0") or 50.0)
     if max_daily_loss <= 0:
         return True
     today_pnl = get_realized_pnl_today_utc()
@@ -94,7 +94,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
     from datetime import datetime, timezone
 
     from app.kalshi_trader import get_balance, place_order
-    from app.models import AppSettings, LiveTrade, db
+    from app.models import LiveTrade, db
     from app.signal_engine import MIN_ENTRY_PRICE
 
     with app.app_context():
@@ -107,7 +107,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 LiveTrade.resolved_at >= today_start,
             ).all()
             today_pnl = sum(t.realized_pnl for t in today_trades if t.realized_pnl is not None)
-            max_daily_loss = float(AppSettings.get_value("max_daily_loss", "50.0") or 50.0)
+            max_daily_loss = float(get_setting("max_daily_loss", "50.0") or 50.0)
             if max_daily_loss > 0 and today_pnl <= -max_daily_loss:
                 logger.warning(
                     "Live trading paused: daily loss limit reached ($%.2f <= -$%.2f)",
@@ -145,7 +145,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 )
                 return
 
-            live_size = float(AppSettings.get_value("live_trade_size", "5.0") or 5.0)
+            live_size = float(get_setting("live_trade_size", "5.0") or 5.0)
             max_risk = available * 0.10
             trade_size = min(live_size, max_risk)
 
@@ -200,16 +200,16 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
 
             # Track fill rate for observability.
             try:
-                attempts = int(AppSettings.get_value("live_fill_attempts", "0") or 0)
-                AppSettings.set_value("live_fill_attempts", str(attempts + 1))
+                attempts = int(get_setting("live_fill_attempts", "0") or 0)
+                set_setting("live_fill_attempts", str(attempts + 1))
             except Exception:
                 logger.debug("Failed to increment live_fill_attempts", exc_info=True)
 
             if order_result.get("success"):
                 # Track successful fill for observability.
                 try:
-                    successes = int(AppSettings.get_value("live_fill_successes", "0") or 0)
-                    AppSettings.set_value("live_fill_successes", str(successes + 1))
+                    successes = int(get_setting("live_fill_successes", "0") or 0)
+                    set_setting("live_fill_successes", str(successes + 1))
                 except Exception:
                     logger.debug("Failed to increment live_fill_successes", exc_info=True)
 
@@ -299,7 +299,7 @@ def poll_and_signal() -> None:
                 logger.warning("Skipping poll during cooldown (%ss remaining).", wait_left)
                 return
 
-            if AppSettings.get_value("scheduler_running", "false") == "false":
+            if get_setting("scheduler_running", "false") == "false":
                 logger.debug("Scheduler paused")
                 return
 
@@ -358,7 +358,7 @@ def poll_and_signal() -> None:
             )
             logger.info("Signal saved to DB, id=%s", saved_signal.id)
 
-            live_setting_on = AppSettings.get_value("live_trading_enabled", "false") == "true"
+            live_setting_on = get_setting("live_trading_enabled", "false") == "true"
             live_keys_ok = kalshi_configured()
             live_enabled = live_setting_on and live_keys_ok
             actionable = result.signal in ("PAPER BUY YES", "PAPER BUY NO")
@@ -372,8 +372,8 @@ def poll_and_signal() -> None:
                     "Live trading enabled but API keys not configured; falling back to paper auto-trade"
                 )
 
-            auto_trade_enabled = AppSettings.get_value("auto_trade_enabled", "false") == "true"
-            paper_trading_enabled = AppSettings.get_value("paper_trading_enabled", "false") == "true"
+            auto_trade_enabled = get_setting("auto_trade_enabled", "false") == "true"
+            paper_trading_enabled = get_setting("paper_trading_enabled", "false") == "true"
             paper_auto_allowed = not (live_setting_on and live_keys_ok)
             if (
                 paper_auto_allowed
@@ -404,9 +404,9 @@ def poll_and_signal() -> None:
                                 MIN_SECONDS_FOR_AUTO_TRADE,
                             )
                         else:
-                            dynamic_sizing = AppSettings.get_value("dynamic_sizing_enabled", "false") == "true"
-                            dollar_amount = float(AppSettings.get_value("paper_trade_size", "10.0"))
-                            mode_str = (AppSettings.get_value("signal_mode", "agreement") or "agreement").lower()
+                            dynamic_sizing = get_setting("dynamic_sizing_enabled", "false") == "true"
+                            dollar_amount = float(get_setting("paper_trade_size", "10.0"))
+                            mode_str = (get_setting("signal_mode", "agreement") or "agreement").lower()
                             mispricing_gap = (
                                 abs(float(result.p_raw) - float(result.p_market))
                                 if mode_str == "mispricing"
@@ -434,7 +434,7 @@ def poll_and_signal() -> None:
                                         "entry_bucket": int(snapshot.get("entry_bucket", 0) or 0),
                                         "p_market": float(snapshot.get("p_market", 0) or 0),
                                         "p_raw": float(snapshot.get("p_raw", 0) or 0),
-                                        "signal_mode": AppSettings.get_value("signal_mode", "agreement") or "agreement",
+                                        "signal_mode": get_setting("signal_mode", "agreement") or "agreement",
                                         "agreement_region": result.agreement_region,
                                         "reason": result.reason,
                                         "confidence": float(result.confidence or 0),
