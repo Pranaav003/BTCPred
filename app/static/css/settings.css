@@ -1,0 +1,591 @@
+/* ==========================================================================
+   settings.css — Settings layout, profiles, risk guards, no-side, live trading,
+   toggles, tooltips, timeline, export dropdown
+   ========================================================================== */
+
+.settings-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+}
+
+.settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+}
+
+.settings-header h1 {
+    margin: 0;
+}
+
+.settings-header p {
+    margin: 6px 0 0;
+}
+
+.settings-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+/* -- Export dropdown ----------------------------------------------------- */
+
+.export-dropdown {
+    position: relative;
+}
+
+.export-dropdown-btn {
+    min-width: 120px;
+}
+
+.export-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 260px;
+    background: #0f0f17;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+    padding: 6px;
+    z-index: 30;
+}
+
+.export-dropdown-item {
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+}
+
+.export-dropdown-item:hover {
+    background: rgba(59, 130, 246, 0.12);
+}
+
+/* -- Settings card & fields --------------------------------------------- */
+
+.settings-card p {
+    margin: 0;
+}
+
+.settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+}
+
+.settings-inline-value {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.settings-inline-value input[type="range"] {
+    width: 100%;
+}
+
+.settings-inline-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-actions {
+    margin-top: var(--space-3);
+    display: inline-flex;
+    gap: var(--space-2);
+}
+
+.settings-info-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-4);
+}
+
+.settings-info-grid p {
+    margin-top: var(--space-1);
+}
+
+.settings-two-col {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+}
+
+.settings-two-col input,
+.settings-field input[type="number"] {
+    border: 1px solid var(--border);
+    background: #0f0f17;
+    color: var(--text-primary);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+}
+
+/* -- Risk guard slider --------------------------------------------------- */
+
+.risk-guard-slider {
+    appearance: none;
+    height: 8px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        rgba(34, 197, 94, 0.9) 0%,
+        rgba(34, 197, 94, 0.9) 25%,
+        rgba(245, 158, 11, 0.9) 25%,
+        rgba(245, 158, 11, 0.9) 56.25%,
+        rgba(239, 68, 68, 0.9) 56.25%,
+        rgba(239, 68, 68, 0.9) 100%
+    );
+    outline: none;
+}
+
+.risk-guard-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+    background: #0f0f17;
+    cursor: pointer;
+}
+
+.risk-guard-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid #ffffff;
+    background: #0f0f17;
+    cursor: pointer;
+}
+
+.settings-markers {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* -- Toggle switch ------------------------------------------------------- */
+
+.toggle-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.toggle-switch {
+    position: relative;
+    width: 48px;
+    height: 26px;
+    display: inline-block;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: rgba(148, 163, 184, 0.35);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    transition: 0.2s ease;
+}
+
+.toggle-slider::before {
+    content: "";
+    position: absolute;
+    height: 20px;
+    width: 20px;
+    left: 2px;
+    top: 2px;
+    background: #fff;
+    border-radius: 50%;
+    transition: 0.2s ease;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background: rgba(59, 130, 246, 0.45);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(22px);
+}
+
+/* -- Warning / success banners ------------------------------------------ */
+
+.warning-banner {
+    margin-top: var(--space-2);
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.13);
+    color: #ffd789;
+}
+
+.warning-banner-danger {
+    border-color: rgba(239, 68, 68, 0.4);
+    background: rgba(127, 29, 29, 0.25);
+    color: #fecaca;
+}
+
+.success-banner {
+    margin-top: var(--space-2);
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(34, 197, 94, 0.35);
+    background: rgba(34, 197, 94, 0.12);
+    color: #baf7cc;
+}
+
+/* -- Help tooltip -------------------------------------------------------- */
+
+.help-tooltip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.6);
+    background: rgba(15, 23, 42, 0.65);
+    color: rgba(226, 232, 240, 0.95);
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: help;
+}
+
+.help-tooltip-popover {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 280px;
+    max-width: 280px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(51, 65, 85, 0.95);
+    background: rgba(2, 6, 23, 0.98);
+    color: rgba(241, 245, 249, 0.95);
+    font-size: 0.78rem;
+    line-height: 1.35;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 30;
+}
+
+.help-tooltip:hover .help-tooltip-popover,
+.help-tooltip:focus .help-tooltip-popover,
+.help-tooltip:focus-within .help-tooltip-popover {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* -- Timeline ------------------------------------------------------------ */
+
+.timeline-wrap {
+    margin-top: var(--space-4);
+}
+
+.timeline-base {
+    position: relative;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.2);
+}
+
+.timeline-active {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.6);
+}
+
+.timeline-labels {
+    margin-top: var(--space-2);
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+/* -- Risk profiles ------------------------------------------------------- */
+
+.risk-profiles-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+    margin-top: var(--space-3);
+}
+
+.signal-mode-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-4);
+    margin-top: var(--space-2);
+}
+
+.signal-mode-card {
+    min-height: 140px;
+}
+
+/* -- Profile card -------------------------------------------------------- */
+
+.profile-card {
+    text-align: left;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: rgba(15, 15, 23, 0.95);
+    color: #ffffff;
+    padding: var(--space-4);
+    cursor: pointer;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+}
+
+.profile-card h4,
+.profile-card p {
+    color: #ffffff;
+    margin: 0 0 var(--space-2) 0;
+}
+
+.profile-card .risk-desc {
+    color: rgba(255, 255, 255, 0.86);
+}
+
+.profile-stat-list {
+    margin-bottom: var(--space-2);
+}
+
+.profile-stat-list p {
+    margin: 0 0 6px 0;
+}
+
+.profile-smart-entry-badge {
+    color: #e9d5ff;
+    background: rgba(168, 85, 247, 0.2);
+    border-color: rgba(168, 85, 247, 0.45);
+}
+
+.profile-early-entry-enabled {
+    color: #fbbf24 !important;
+}
+
+.profile-card.active {
+    border-color: var(--accent);
+    background: rgba(59, 130, 246, 0.18);
+}
+
+.profile-card-editing {
+    cursor: default;
+}
+
+.profile-edit-btn {
+    margin-left: auto;
+}
+
+.profile-reset-btn {
+    border-color: rgba(239, 68, 68, 0.45);
+    color: #fecaca;
+}
+
+.profile-reset-btn:hover,
+.profile-reset-btn:focus-visible {
+    background: rgba(239, 68, 68, 0.18);
+    border-color: rgba(239, 68, 68, 0.65);
+}
+
+/* Settings: selection is shown only by border/tint (no text badges on cards). */
+.settings-card .profile-card.active {
+    border-width: 2px;
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.22);
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35);
+}
+
+.settings-card .profile-card:not(.active) {
+    border-width: 1px;
+}
+
+.override-explain-box {
+    margin-bottom: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: rgba(15, 23, 42, 0.55);
+}
+
+.override-explain-box p {
+    margin: 0 0 var(--space-2) 0;
+    font-size: 0.9rem;
+    line-height: 1.45;
+}
+
+.override-explain-box p:last-child {
+    margin-bottom: 0;
+}
+
+.override-profile-hint {
+    font-size: 0.85rem;
+    margin-left: var(--space-1);
+    white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+    .override-profile-hint {
+        white-space: normal;
+        display: block;
+        margin-left: 0;
+        margin-top: 4px;
+    }
+}
+
+.profile-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.profile-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+}
+
+.profile-warning {
+    margin-top: var(--space-2);
+    padding: 8px 10px;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.12);
+    border-radius: var(--radius-sm);
+    color: #ffb3b3;
+    font-size: 0.82rem;
+}
+
+/* -- No-side settings ---------------------------------------------------- */
+
+.no-side-settings-card {
+    margin-top: calc(var(--space-4) * -1);
+}
+
+.no-side-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: center;
+}
+
+.no-side-title {
+    color: #fff;
+    font-weight: 700;
+    margin: 8px 0;
+}
+
+.no-side-warning {
+    margin: var(--space-3) 0;
+}
+
+.no-side-link {
+    margin-top: var(--space-2);
+}
+
+.no-side-toggle-wrap {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    text-align: center;
+}
+
+.no-side-toggle {
+    width: 86px;
+    height: 44px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(148, 163, 184, 0.35);
+    padding: 3px;
+    position: relative;
+    cursor: pointer;
+}
+
+.no-side-toggle-knob {
+    display: block;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.2s ease;
+}
+
+.no-side-toggle.enabled {
+    background: rgba(245, 158, 11, 0.35);
+    border-color: rgba(245, 158, 11, 0.6);
+}
+
+.no-side-toggle.enabled .no-side-toggle-knob {
+    transform: translateX(40px);
+}
+
+/* -- Advanced override --------------------------------------------------- */
+
+.advanced-override {
+    margin-top: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-4);
+}
+
+.advanced-override.override-enabled {
+    border-color: rgba(59, 130, 246, 0.5);
+    background: rgba(59, 130, 246, 0.08);
+}
+
+/* -- Live trading -------------------------------------------------------- */
+
+.live-status-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-bottom: 16px;
+}
+
+.live-status-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.live-status-item .label {
+    font-size: 0.875rem;
+}
+
+.settings-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+}
+
+.live-enable-row {
+    margin-top: 12px;
+}
