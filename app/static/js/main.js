@@ -1355,6 +1355,17 @@ async function fetchMarketPrices() {
     if (downPill) {
         downPill.textContent = payload.down_display || "Down --";
     }
+    // Bid/ask spread display
+    const yesSpread = payload.yes_ask && payload.yes_bid ? (payload.yes_ask - payload.yes_bid).toFixed(2) : null;
+    const spreadEl = document.getElementById("spread-display");
+    if (spreadEl && yesSpread !== null) {
+        const spreadCents = Math.round(parseFloat(yesSpread) * 100);
+        spreadEl.textContent = `${spreadCents}¢`;
+        spreadEl.className = spreadCents > 5 ? "spread-pill spread-wide" : "spread-pill";
+    } else if (spreadEl) {
+        spreadEl.textContent = "--";
+        spreadEl.className = "spread-pill";
+    }
 }
 
 function currentEntryPriceForSide(side) {
@@ -1403,6 +1414,47 @@ function confirmHighRiskNoTrade() {
             return;
         }
         refreshNoTradeRiskModalContent();
+        modal.style.display = "flex";
+
+        const cleanup = (result) => {
+            modal.style.display = "none";
+            cancelBtn.removeEventListener("click", onCancel);
+            confirmBtn.removeEventListener("click", onConfirm);
+            modal.removeEventListener("click", onBackdrop);
+            document.removeEventListener("keydown", onKeydown);
+            resolve(result);
+        };
+        const onCancel = () => cleanup(false);
+        const onConfirm = () => cleanup(true);
+        const onBackdrop = (event) => {
+            if (event.target === modal) cleanup(false);
+        };
+        const onKeydown = (event) => {
+            if (event.key === "Escape") cleanup(false);
+        };
+
+        cancelBtn.addEventListener("click", onCancel);
+        confirmBtn.addEventListener("click", onConfirm);
+        modal.addEventListener("click", onBackdrop);
+        document.addEventListener("keydown", onKeydown);
+    });
+}
+
+function confirmTradeModal(side) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById("trade-confirm-modal");
+        const textEl = document.getElementById("trade-confirm-text");
+        const cancelBtn = document.getElementById("trade-confirm-cancel");
+        const confirmBtn = document.getElementById("trade-confirm-ok");
+        if (!modal || !cancelBtn || !confirmBtn) {
+            resolve(false);
+            return;
+        }
+        const input = document.getElementById("trade-size-input");
+        const amount = Number(input?.value || 0);
+        const price = currentEntryPriceForSide(side);
+        const contracts = Number.isFinite(price) && price > 0 ? (amount / price) : NaN;
+        textEl.textContent = `Buy ${Number.isFinite(contracts) ? contracts.toFixed(2) : "--"} ${side} contracts for $${amount.toFixed(2)} @ ${Number.isFinite(price) ? (price * 100).toFixed(1) : "--"}¢?`;
         modal.style.display = "flex";
 
         const cleanup = (result) => {
@@ -1544,6 +1596,22 @@ function updateTradeCalculator() {
         } else {
             netProfitEl.textContent = "--";
             netProfitEl.classList.remove("text-success", "text-danger");
+        }
+
+        // Expected Value display
+        const evEl = document.getElementById("ev-display");
+        if (evEl) {
+            const pCorrect = Number.isFinite(pRaw) ? pRaw : 0;
+            const cost = Number.isFinite(tradeCost) ? tradeCost : 0;
+            const np = Number.isFinite(netProfit) ? netProfit : 0;
+            if (Number.isFinite(pRaw) && Number.isFinite(netProfit) && Number.isFinite(tradeCost)) {
+                const ev = (pCorrect * np) + ((1 - pCorrect) * (-cost));
+                evEl.textContent = ev >= 0 ? `+$${ev.toFixed(2)}` : `-$${Math.abs(ev).toFixed(2)}`;
+                evEl.className = ev >= 0 ? "ev-positive" : "ev-negative";
+            } else {
+                evEl.textContent = "--";
+                evEl.className = "";
+            }
         }
     }
     if (leverageWarningEl) {
@@ -1720,6 +1788,8 @@ function setupPaperTradingControls() {
 
     if (modal) modal.style.display = "none";
     if (noTradeRiskModal) noTradeRiskModal.style.display = "none";
+    const tradeConfirmModal = document.getElementById("trade-confirm-modal");
+    if (tradeConfirmModal) tradeConfirmModal.style.display = "none";
     if (autoTradeToggle) autoTradeToggle.addEventListener("change", () => toggleAutoTrade(autoTradeToggle.checked));
     if (tradeInput) {
         tradeInput.addEventListener("input", () => {
@@ -1734,9 +1804,10 @@ function setupPaperTradingControls() {
             if (Number.isFinite(parsed) && parsed > 0) persistPaperTradeSize(parsed);
         });
     }
-    if (yesBtn) yesBtn.addEventListener("click", () => {
+    if (yesBtn) yesBtn.addEventListener("click", async () => {
         setSelectedTradeSide("YES");
-        placeTrade("YES");
+        const confirmed = await confirmTradeModal("YES");
+        if (confirmed) placeTrade("YES", { skipRiskConfirm: true });
     });
     if (noBtn) noBtn.addEventListener("click", () => {
         setSelectedTradeSide("NO");
