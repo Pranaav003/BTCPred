@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import io
 import threading
 from pathlib import Path
@@ -27,6 +28,15 @@ def _load_from_disk(model_path: str = "raw_feature_model.pkl") -> dict | None:
     return bundle
 
 
+def _decompress(data: bytes) -> bytes:
+    """Decompress gzip data, or return raw bytes if not gzipped."""
+    try:
+        return gzip.decompress(data)
+    except (gzip.BadGzipFile, OSError):
+        # Not gzipped — legacy uncompressed storage
+        return data
+
+
 def _load_from_db() -> dict | None:
     """Try to load model from PostgreSQL ModelArtifact table. Returns None if not stored."""
     try:
@@ -36,13 +46,15 @@ def _load_from_db() -> dict | None:
         artifact = ModelArtifact.query.filter_by(name="default").first()
         if artifact is None or artifact.data is None:
             return None
-        bundle = joblib.load(io.BytesIO(artifact.data))
+        raw = _decompress(artifact.data)
+        bundle = joblib.load(io.BytesIO(raw))
         if not isinstance(bundle, dict):
             return None
         logger.info(
-            "Loaded model from DB (uploaded %s, %d bytes)",
+            "Loaded model from DB (uploaded %s, %d bytes stored, %d bytes decompressed)",
             artifact.uploaded_at,
             len(artifact.data),
+            len(raw),
         )
         return bundle
     except Exception as exc:
@@ -112,7 +124,11 @@ def clear_model_cache() -> None:
 
 
 def save_model_to_db(model_path: str = "raw_feature_model.pkl") -> dict:
-    """Read a .pkl from disk and persist it to the ModelArtifact table."""
+    """Read a .pkl from disk, gzip-compress, and persist to the ModelArtifact table.
+
+    Compression shrinks the 15MB pkl to ~3-5MB, avoiding SSL connection
+    timeouts on Render's starter PostgreSQL.
+    """
     path = Path(model_path)
     if not path.exists():
         raise FileNotFoundError(f"Model file not found: {path}")
@@ -120,28 +136,35 @@ def save_model_to_db(model_path: str = "raw_feature_model.pkl") -> dict:
     from app.models import ModelArtifact
     from app.extensions import db
 
-    data = path.read_bytes()
-    bundle = joblib.load(io.BytesIO(data))
+    raw = path.read_bytes()
+    bundle = joblib.load(io.BytesIO(raw))
     if not isinstance(bundle, dict):
         raise ValueError("Model file does not contain a valid bundle dict")
+
+    compressed = gzip.compress(raw, compresslevel=6)
 
     metrics = bundle.get("test_metrics", {})
     artifact = ModelArtifact.query.filter_by(name="default").first()
     if artifact is None:
-        artifact = ModelArtifact(name="default", data=data)
+        artifact = ModelArtifact(name="default", data=compressed)
         db.session.add(artifact)
     else:
-        artifact.data = data
+        artifact.data = compressed
         artifact.uploaded_at = None  # let default kick in
 
-    artifact.size_bytes = len(data)
+    artifact.size_bytes = len(compressed)
     artifact.model_type = bundle.get("model_type")
     artifact.accuracy = metrics.get("accuracy")
     db.session.commit()
 
-    logger.info("Model saved to DB: %d bytes, accuracy=%.4f", len(data), metrics.get("accuracy", 0))
+    logger.info(
+        "Model saved to DB: %d bytes raw → %d bytes compressed (%.0f%% reduction), accuracy=%.4f",
+        len(raw), len(compressed), 100 * (1 - len(compressed) / len(raw)),
+        metrics.get("accuracy", 0),
+    )
     return {
-        "size_bytes": len(data),
+        "size_bytes": len(raw),
+        "size_bytes_stored": len(compressed),
         "model_type": bundle.get("model_type"),
         "accuracy": metrics.get("accuracy"),
         "trained_at": bundle.get("trained_at"),
@@ -149,7 +172,7 @@ def save_model_to_db(model_path: str = "raw_feature_model.pkl") -> dict:
 
 
 def load_model_to_disk_from_db(model_path: str = "raw_feature_model.pkl") -> bool:
-    """If model is in DB but not on disk, write it to disk (for train_raw_model.py compat)."""
+    """If model is in DB but not on disk, decompress and write it to disk (for train_raw_model.py compat)."""
     path = Path(model_path)
     if path.exists():
         return False
@@ -160,8 +183,9 @@ def load_model_to_disk_from_db(model_path: str = "raw_feature_model.pkl") -> boo
     if artifact is None or artifact.data is None:
         return False
 
-    path.write_bytes(artifact.data)
-    logger.info("Wrote model from DB to disk: %s (%d bytes)", path, len(artifact.data))
+    raw = _decompress(artifact.data)
+    path.write_bytes(raw)
+    logger.info("Wrote model from DB to disk: %s (%d bytes)", path, len(raw))
     return True
 
 
