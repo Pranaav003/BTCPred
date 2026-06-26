@@ -207,6 +207,33 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 price_cents=price_cents,
             )
 
+            # --- Retry once at a worse price if the IOC didn't fill ---
+            # The order book may have few contracts at our price; +3¢ often finds liquidity.
+            # Cap at 80¢ (entry price filter max) so we never chase into thin-upside territory.
+            MAX_RETRY_CENTS = 80
+            if order_result.get("unfilled"):
+                retry_cents = min(price_cents + 3, MAX_RETRY_CENTS)
+                if retry_cents > price_cents:
+                    logger.info(
+                        "Retrying unfilled order: %sc → %sc (+3¢ retry, cap %sc)",
+                        price_cents,
+                        retry_cents,
+                        MAX_RETRY_CENTS,
+                    )
+                    price_cents = retry_cents
+                    # Recalculate entry_price and cost for the higher price
+                    if side == "yes":
+                        entry_price = price_cents / 100.0
+                    else:
+                        entry_price = 1.0 - (price_cents / 100.0)
+                    actual_cost = contracts * entry_price
+                    order_result = place_order(
+                        ticker=ticker,
+                        side=side,
+                        count=contracts,
+                        price_cents=price_cents,
+                    )
+
             # Track fill rate for observability.
             try:
                 attempts = int(get_setting("live_fill_attempts", "0") or 0)
