@@ -173,9 +173,13 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 )
                 return
 
-            # --- Edge-based sizing (Kelly-lite) ---
-            # Scale position size by model edge over market.
-            # Small edges get smaller positions; strong edges get boosted.
+            # --- Edge-based + upside-adjusted sizing (Kelly-lite) ---
+            # Two factors scale position size:
+            # 1. Model edge: how much the model disagrees with the market.
+            #    Small edges → smaller positions; strong edges → boosted.
+            # 2. Upside per contract: at 72¢ YES you win 28¢, at 28¢ NO you win 72¢.
+            #    Flat sizing means 28¢ upside gets the same bet as 72¢ upside —
+            #    so we scale by upside to equalize risk/reward across entry prices.
             model_prob = float(result.p_raw)
             market_prob = float(result.p_market)
             edge = abs(model_prob - market_prob)
@@ -195,10 +199,21 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
             else:
                 edge_mult = 0.5
             trade_size *= edge_mult
+
+            # Upside multiplier: normalize so 50¢ upside = 1.0x.
+            # At 72¢ YES: upside 28¢ → 0.56x (small bet, small potential win)
+            # At 55¢ YES: upside 45¢ → 0.90x (moderate)
+            # At 28¢ NO:  upside 72¢ → 1.44x (large bet, large potential win)
+            # Floor at 0.3x so we never bet tiny amounts on very expensive entries.
+            upside = (1.0 - entry_price) if side == "yes" else entry_price
+            upside_mult = max(0.3, upside / 0.50)
+            trade_size *= upside_mult
             logger.info(
-                "Edge %.1f%% → %.1fx sizing → $%.2f trade size",
+                "Edge %.1f%% → %.1fx, upside %.0f¢ → %.2fx → $%.2f trade size",
                 edge * 100,
                 edge_mult,
+                upside * 100,
+                upside_mult,
                 trade_size,
             )
 
