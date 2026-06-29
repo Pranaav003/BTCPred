@@ -173,6 +173,35 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 )
                 return
 
+            # --- Edge-based sizing (Kelly-lite) ---
+            # Scale position size by model edge over market.
+            # Small edges get smaller positions; strong edges get boosted.
+            model_prob = float(result.p_raw)
+            market_prob = float(result.p_market)
+            edge = abs(model_prob - market_prob)
+            if edge < 0.05:
+                logger.info(
+                    "Live trade skipped: edge %.1f%% too small (model %.1f%% vs market %.1f%%) "
+                    "— aggressive offset would eat the entire edge.",
+                    edge * 100,
+                    model_prob * 100,
+                    market_prob * 100,
+                )
+                return
+            if edge >= 0.15:
+                edge_mult = 1.5
+            elif edge >= 0.10:
+                edge_mult = 1.0
+            else:
+                edge_mult = 0.5
+            trade_size *= edge_mult
+            logger.info(
+                "Edge %.1f%% → %.1fx sizing → $%.2f trade size",
+                edge * 100,
+                edge_mult,
+                trade_size,
+            )
+
             contracts = int(trade_size / entry_price)
             if contracts < 1:
                 logger.warning(
@@ -182,20 +211,26 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 )
                 return
 
+            # --- Side-aware aggressive offset ---
+            # YES books are liquid at 65-80¢; +2¢ crosses the spread.
+            # NO books at 20-40¢ are very thin; need +5¢ to find liquidity.
             if side == "yes":
                 raw_cents = round(result.p_market * 100)
-                price_cents = max(1, min(99, raw_cents + 2))
+                aggressive_offset = 2
+                price_cents = max(1, min(99, raw_cents + aggressive_offset))
             else:
                 raw_cents = round((1.0 - result.p_market) * 100)
-                price_cents = max(1, min(99, raw_cents + 2))
+                aggressive_offset = 5 if raw_cents <= 40 else 3
+                price_cents = max(1, min(99, raw_cents + aggressive_offset))
             actual_cost = contracts * entry_price
 
             logger.info(
-                "Placing live order: %s %s contracts on %s at %sc ($%.2f risk, balance $%.2f)",
+                "Placing live order: %s %s contracts on %s at %sc (+%dc offset, $%.2f risk, balance $%.2f)",
                 side.upper(),
                 contracts,
                 ticker,
                 price_cents,
+                aggressive_offset,
                 actual_cost,
                 available,
             )
@@ -208,17 +243,28 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
             )
 
             # --- Retry once at a worse price if the IOC didn't fill ---
-            # The order book may have few contracts at our price; +3¢ often finds liquidity.
-            # Cap at 80¢ (entry price filter max) so we never chase into thin-upside territory.
-            MAX_RETRY_CENTS = 80
+            # The order book may have few contracts at our price; a second attempt
+            # at a deeper price often finds liquidity.
+            # Cap the retry price to avoid chasing into low-upside territory.
+            max_entry_yes = float(get_setting("max_entry_price_yes", "0.65") or 0.65)
+            if side == "yes":
+                retry_cap_cents = max(1, int(max_entry_yes * 100))
+                retry_offset = 3
+            else:
+                # For NO side, cap in NO-cents terms: (1 - min_YES_price) * 100
+                # i.e. don't let NO price exceed max_entry_price_no in cents
+                max_entry_no = float(get_setting("max_entry_price_no", "0.80") or 0.80)
+                retry_cap_cents = max(1, int(max_entry_no * 100))
+                retry_offset = 5 if raw_cents <= 40 else 3
             if order_result.get("unfilled"):
-                retry_cents = min(price_cents + 3, MAX_RETRY_CENTS)
+                retry_cents = min(price_cents + retry_offset, retry_cap_cents)
                 if retry_cents > price_cents:
                     logger.info(
-                        "Retrying unfilled order: %sc → %sc (+3¢ retry, cap %sc)",
+                        "Retrying unfilled order: %sc → %sc (+%dc retry, cap %sc)",
                         price_cents,
                         retry_cents,
-                        MAX_RETRY_CENTS,
+                        retry_offset,
+                        retry_cap_cents,
                     )
                     price_cents = retry_cents
                     # Recalculate entry_price and cost for the higher price

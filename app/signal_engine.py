@@ -782,8 +782,8 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
     if signal_mode == "ensemble_vote":
         signal_mode = "ensemble"
     mispricing_threshold = float(get_setting("mispricing_threshold", str(MISPRICING_THRESHOLD)) or MISPRICING_THRESHOLD)
-    max_entry_yes = float(get_setting("max_entry_price_yes", "0.85") or 0.85)
-    max_entry_no = float(get_setting("max_entry_price_no", "0.85") or 0.85)
+    max_entry_yes = float(get_setting("max_entry_price_yes", "0.65") or 0.65)
+    max_entry_no = float(get_setting("max_entry_price_no", "0.80") or 0.80)
     max_reversal = float(get_setting("max_reversal_risk", "0.65") or 0.65)
     high_conviction_override = float(get_setting("high_conviction_volatility_override", "0.80") or 0.80)
 
