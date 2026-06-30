@@ -184,9 +184,13 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
             model_prob = float(result.p_raw)
             market_prob = float(result.p_market)
             edge = abs(model_prob - market_prob)
-            if edge < 0.05:
+            is_mispricing = "mispricing" in (result.agreement_region or "").lower() or edge >= 0.10
+            # Only skip mispricing signals with tiny edges — agreement signals
+            # are valid even when model ≈ market (the conviction is both agreeing,
+            # not the gap). Skipping those was blocking most YES agreement trades.
+            if is_mispricing and edge < 0.05:
                 logger.info(
-                    "Live trade skipped: edge %.1f%% too small (model %.1f%% vs market %.1f%%) "
+                    "Live trade skipped: mispricing edge %.1f%% too small (model %.1f%% vs market %.1f%%) "
                     "— aggressive offset would eat the entire edge.",
                     edge * 100,
                     model_prob * 100,
@@ -198,7 +202,9 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
             elif edge >= 0.10:
                 edge_mult = 1.0
             else:
-                edge_mult = 0.5
+                # Agreement signals with small edges still get 0.8x (not 0.5x)
+                # because the confidence is in the agreement, not the gap.
+                edge_mult = 0.8 if not is_mispricing else 0.5
 
             # Upside multiplier: normalize so 50¢ upside = 1.0x.
             # At 72¢ YES: upside 28¢ → 0.56x (small bet, small potential win)
