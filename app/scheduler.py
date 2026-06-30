@@ -261,7 +261,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
             # The order book may have few contracts at our price; a second attempt
             # at a deeper price often finds liquidity.
             # Cap the retry price to avoid chasing into low-upside territory.
-            max_entry_yes = float(get_setting("max_entry_price_yes", "0.72") or 0.72)
+            max_entry_yes = float(get_setting("max_entry_price_yes", "0.80") or 0.80)
             if side == "yes":
                 retry_cap_cents = max(1, int(max_entry_yes * 100))
                 retry_offset = 3

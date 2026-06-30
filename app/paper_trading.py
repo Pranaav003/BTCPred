@@ -343,7 +343,7 @@ def execute_paper_trade(
     # Safety net for auto-trades: enforce max-entry caps at execution time
     # using the latest price, not only signal-generation-time price.
     if signal_triggered:
-        max_entry_yes = float(get_setting("max_entry_price_yes", "0.72") or 0.72)
+        max_entry_yes = float(get_setting("max_entry_price_yes", "0.80") or 0.80)
         max_entry_no = float(get_setting("max_entry_price_no", "0.80") or 0.80)
         if normalized_side == "YES" and entry_price > max_entry_yes:
             logger.info(

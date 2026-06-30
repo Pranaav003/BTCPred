@@ -264,7 +264,7 @@ def seed_default_settings() -> None:
         "risk_profile": "moderate",
         "signal_mode": "ensemble",
         "mispricing_threshold": "0.10",
-        "max_entry_price_yes": "0.72",
+        "max_entry_price_yes": "0.80",
         "max_entry_price_no": "0.80",
         "min_expected_profit": "0.10",
         "max_reversal_risk": "0.65",
