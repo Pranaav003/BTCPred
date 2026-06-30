@@ -156,7 +156,6 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
 
             live_size = float(get_setting("live_trade_size", "5.0") or 5.0)
             max_risk = available * 0.10
-            trade_size = min(live_size, max_risk)
 
             if result.signal == "PAPER BUY YES":
                 side = "yes"
@@ -180,6 +179,8 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
             # 2. Upside per contract: at 72¢ YES you win 28¢, at 28¢ NO you win 72¢.
             #    Flat sizing means 28¢ upside gets the same bet as 72¢ upside —
             #    so we scale by upside to equalize risk/reward across entry prices.
+            # IMPORTANT: max_risk cap is applied AFTER multipliers so the final
+            # trade size never exceeds 10% of available balance.
             model_prob = float(result.p_raw)
             market_prob = float(result.p_market)
             edge = abs(model_prob - market_prob)
@@ -198,23 +199,26 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 edge_mult = 1.0
             else:
                 edge_mult = 0.5
-            trade_size *= edge_mult
 
             # Upside multiplier: normalize so 50¢ upside = 1.0x.
             # At 72¢ YES: upside 28¢ → 0.56x (small bet, small potential win)
             # At 55¢ YES: upside 45¢ → 0.90x (moderate)
             # At 28¢ NO:  upside 72¢ → 1.44x (large bet, large potential win)
             # Floor at 0.3x so we never bet tiny amounts on very expensive entries.
+            # Cap at 1.0x so NO-side trades don't overshoot on mid-range entries.
             upside = (1.0 - entry_price) if side == "yes" else entry_price
-            upside_mult = max(0.3, upside / 0.50)
-            trade_size *= upside_mult
+            upside_mult = max(0.3, min(1.0, upside / 0.50))
+            trade_size = live_size * edge_mult * upside_mult
+            # Apply risk cap AFTER all multipliers so we never exceed 10% of balance.
+            trade_size = min(trade_size, max_risk)
             logger.info(
-                "Edge %.1f%% → %.1fx, upside %.0f¢ → %.2fx → $%.2f trade size",
+                "Edge %.1f%% → %.1fx, upside %.0f¢ → %.2fx → $%.2f (cap $%.2f)",
                 edge * 100,
                 edge_mult,
                 upside * 100,
                 upside_mult,
                 trade_size,
+                max_risk,
             )
 
             contracts = int(trade_size / entry_price)
