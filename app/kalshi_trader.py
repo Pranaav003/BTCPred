@@ -85,8 +85,13 @@ def place_order(
     side: str,
     count: int,
     price_cents: int,
+    gtc: bool = False,
 ) -> dict:
-    """Place a limit IOC order on Kalshi (V2 events API)."""
+    """Place a limit order on Kalshi (V2 events API).
+
+    By default uses IOC (immediate-or-cancel). Set gtc=True to place a
+    good-til-cancelled order that rests in the book until filled or cancelled.
+    """
     if not is_configured():
         return {"error": "API keys not configured"}
     if count < 1:
@@ -112,7 +117,7 @@ def place_order(
         "side": book_side,
         "count": f"{int(count)}.00",
         "price": price_str,
-        "time_in_force": "immediate_or_cancel",
+        "time_in_force": "gtc" if gtc else "immediate_or_cancel",
         "self_trade_prevention_type": "taker_at_cross",
     }
     headers = get_kalshi_headers("POST", path)
@@ -136,6 +141,23 @@ def place_order(
             fill = _parse_order_fill(order_payload)
             fill_count = int(fill["fill_count"]) if fill["fill_count"] >= 1 else 0
             if fill_count < 1:
+                if gtc:
+                    # GTC order resting in book — not a failure, just not filled yet.
+                    logger.info(
+                        "LIVE GTC ORDER RESTING: %s %s contracts on %s at %s — order_id=%s (waiting for fill)",
+                        side.upper(),
+                        count,
+                        ticker,
+                        price_str,
+                        order_id,
+                    )
+                    return {
+                        "success": True,
+                        "resting": True,
+                        "order_id": order_id,
+                        "fill_count": 0,
+                        "order": data,
+                    }
                 logger.warning(
                     "LIVE ORDER UNFILLED: %s %s contracts on %s at %s — order_id=%s",
                     side.upper(),
@@ -183,6 +205,38 @@ def place_order(
         }
     except Exception as exc:
         logger.exception("Order placement exception: %s", exc)
+        return {"error": str(exc)}
+
+
+def cancel_order(order_id: str) -> dict:
+    """Cancel a resting (GTC) order on Kalshi."""
+    if not is_configured():
+        return {"error": "API keys not configured"}
+    path = f"/portfolio/events/orders/{order_id}"
+    headers = get_kalshi_headers("DELETE", path)
+    if not headers:
+        return {"error": "Failed to generate auth headers"}
+    try:
+        response = requests.delete(
+            TRADING_BASE_URL + path,
+            headers=headers,
+            timeout=10,
+        )
+        if response.status_code in (200, 202):
+            logger.info("Cancelled order %s", order_id)
+            return {"success": True, "order_id": order_id}
+        logger.warning(
+            "Cancel order %s failed: %s — %s",
+            order_id,
+            response.status_code,
+            response.text[:200],
+        )
+        return {
+            "error": f"Cancel failed: {response.status_code}",
+            "detail": response.text[:200],
+        }
+    except Exception as exc:
+        logger.exception("Cancel order exception: %s", exc)
         return {"error": str(exc)}
 
 

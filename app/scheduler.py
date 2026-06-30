@@ -93,7 +93,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
     """Place a real Kalshi order mirroring the signal. All safety checks run first."""
     from datetime import datetime, timezone
 
-    from app.kalshi_trader import get_balance, place_order
+    from app.kalshi_trader import cancel_order, get_balance, place_order
     from app.model_loader import get_model
     from app.models import LiveTrade, db
     from app.signal_engine import MIN_ENTRY_PRICE
@@ -243,8 +243,17 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 price_cents = max(1, min(99, raw_cents + aggressive_offset))
             actual_cost = contracts * entry_price
 
+            # --- Cancel any stale resting GTC order on the same ticker ---
+            # Before placing a new order, cancel any existing resting order
+            # so we don't stack up unfilled orders on the same market.
+            stale_order_id = get_setting(f"live_resting_order_{ticker}")
+            if stale_order_id:
+                logger.info("Cancelling stale resting order %s on %s", stale_order_id, ticker)
+                cancel_order(stale_order_id)
+                set_setting(f"live_resting_order_{ticker}", "")
+
             logger.info(
-                "Placing live order: %s %s contracts on %s at %sc (+%dc offset, $%.2f risk, balance $%.2f)",
+                "Placing live GTC order: %s %s contracts on %s at %sc (+%dc offset, $%.2f risk, balance $%.2f)",
                 side.upper(),
                 contracts,
                 ticker,
@@ -259,45 +268,8 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 side=side,
                 count=contracts,
                 price_cents=price_cents,
+                gtc=True,
             )
-
-            # --- Retry once at a worse price if the IOC didn't fill ---
-            # The order book may have few contracts at our price; a second attempt
-            # at a deeper price often finds liquidity.
-            # Cap the retry price to avoid chasing into low-upside territory.
-            max_entry_yes = float(get_setting("max_entry_price_yes", "0.80") or 0.80)
-            if side == "yes":
-                retry_cap_cents = max(1, int(max_entry_yes * 100))
-                retry_offset = 3
-            else:
-                # For NO side, cap in NO-cents terms: (1 - min_YES_price) * 100
-                # i.e. don't let NO price exceed max_entry_price_no in cents
-                max_entry_no = float(get_setting("max_entry_price_no", "0.80") or 0.80)
-                retry_cap_cents = max(1, int(max_entry_no * 100))
-                retry_offset = 5 if raw_cents <= 40 else 3
-            if order_result.get("unfilled"):
-                retry_cents = min(price_cents + retry_offset, retry_cap_cents)
-                if retry_cents > price_cents:
-                    logger.info(
-                        "Retrying unfilled order: %sc → %sc (+%dc retry, cap %sc)",
-                        price_cents,
-                        retry_cents,
-                        retry_offset,
-                        retry_cap_cents,
-                    )
-                    price_cents = retry_cents
-                    # Recalculate entry_price and cost for the higher price
-                    if side == "yes":
-                        entry_price = price_cents / 100.0
-                    else:
-                        entry_price = 1.0 - (price_cents / 100.0)
-                    actual_cost = contracts * entry_price
-                    order_result = place_order(
-                        ticker=ticker,
-                        side=side,
-                        count=contracts,
-                        price_cents=price_cents,
-                    )
 
             # Track fill rate for observability.
             try:
@@ -315,18 +287,30 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                     logger.debug("Failed to increment live_fill_successes", exc_info=True)
 
                 filled_contracts = int(order_result.get("fill_count") or contracts)
-                fill_cost = order_result.get("fill_cost_dollars")
-                avg_fill = order_result.get("average_fill_price")
-                if avg_fill is not None:
-                    entry_price = float(avg_fill)
-                    price_cents = max(1, min(99, int(round(entry_price * 100))))
-                if fill_cost is not None:
-                    actual_cost = float(fill_cost)
+
+                # If GTC order is resting (not yet filled), save its ID so we
+                # can cancel it before placing the next order on the same ticker.
+                if order_result.get("resting") and not filled_contracts:
+                    order_id = order_result.get("order_id", "unknown")
+                    set_setting(f"live_resting_order_{ticker}", order_id)
+                    logger.info("GTC order %s resting on %s — will cancel before next trade", order_id, ticker)
+                    contracts = 0
+                    actual_cost = 0.0
+                    order_status = "resting"
+                    error_detail = None
                 else:
-                    actual_cost = filled_contracts * entry_price
-                contracts = filled_contracts
-                order_status = "placed"
-                error_detail = None
+                    fill_cost = order_result.get("fill_cost_dollars")
+                    avg_fill = order_result.get("average_fill_price")
+                    if avg_fill is not None:
+                        entry_price = float(avg_fill)
+                        price_cents = max(1, min(99, int(round(entry_price * 100))))
+                    if fill_cost is not None:
+                        actual_cost = float(fill_cost)
+                    else:
+                        actual_cost = filled_contracts * entry_price
+                    contracts = filled_contracts
+                    order_status = "placed"
+                    error_detail = None
             elif order_result.get("unfilled"):
                 contracts = 0
                 actual_cost = 0.0

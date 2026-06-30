@@ -167,11 +167,24 @@ def _apply_kalshi_settlement(trade, settlement: dict, now_utc: datetime) -> bool
 
 def resolve_live_trades() -> int:
     """Resolve or reconcile live trades using Kalshi settlement data."""
-    from app.kalshi_trader import get_settlement_for_ticker, is_configured
+    from app.kalshi_trader import cancel_order, get_settlement_for_ticker, is_configured
     from app.models import LiveTrade
 
     if not is_configured():
         return 0
+
+    # Cancel any resting GTC orders on resolved markets so they don't linger.
+    resting_trades = LiveTrade.query.filter(
+        LiveTrade.order_status == "resting",
+        LiveTrade.kalshi_order_id.isnot(None),
+    ).all()
+    for rt in resting_trades:
+        logger.info("Cancelling resting GTC order %s on %s during resolution", rt.kalshi_order_id, rt.ticker)
+        cancel_order(rt.kalshi_order_id)
+        rt.order_status = "cancelled"
+    if resting_trades:
+        from app import db as _db
+        _db.session.commit()
 
     trades = (
         LiveTrade.query.filter(
