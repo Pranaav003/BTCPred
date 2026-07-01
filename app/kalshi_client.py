@@ -29,7 +29,7 @@ _candle_cache: dict[str, dict[str, Any]] = {}
 _trade_cache: dict[str, dict[str, Any]] = {}
 _request_lock = Lock()
 _last_request_time = 0.0
-_min_request_interval = 1.0
+_min_request_interval = 0.5
 
 MARKET_CACHE_TTL = 30.0
 CANDLE_CACHE_TTL = 12.0

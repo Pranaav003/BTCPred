@@ -31,7 +31,7 @@ _MAX_FAILURES_BEFORE_COOLDOWN = 3
 _COOLDOWN_SECONDS = 60
 _cooldown_until_ts = 0.0
 _cooldown_level = 0
-_COOLDOWN_SCHEDULE = [60, 120, 240, 300]
+_COOLDOWN_SCHEDULE = [30, 60, 90, 120]
 
 
 def _auto_trade_allowed_by_daily_loss() -> bool:

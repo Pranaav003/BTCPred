@@ -36,7 +36,7 @@ def _weighted_avg_price(trades_df: pd.DataFrame) -> float | None:
     if valid.empty:
         return None
 
-    valid["qty"] = valid["qty"].fillna(0.0)
+    valid.loc[:, "qty"] = valid["qty"].fillna(0.0)
     total_qty = float(valid["qty"].sum())
     if total_qty == 0.0:
         return float(valid["price"].mean())
@@ -162,21 +162,23 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
         candle_future = ex.submit(get_candles, str(ticker), int(close_ts))
         trade_future = ex.submit(get_trades, str(ticker), snapshot_ts - 600, snapshot_ts)
         try:
-            candles = candle_future.result(timeout=8)
+            candles = candle_future.result(timeout=20)
         except TimeoutError:
-            logger.warning("Candle fetch timed out after 8s — skipping poll")
+            logger.warning("Candle fetch timed out after 20s — skipping poll")
             return None
         except Exception as exc:
             logger.error("Candle fetch failed: %s", exc)
             return None
         try:
-            trades = trade_future.result(timeout=8)
+            trades = trade_future.result(timeout=20)
         except TimeoutError:
-            logger.warning("Trade fetch timed out after 8s — skipping poll")
-            return None
+            # Trade data is optional — candles are enough for most features.
+            # Don't discard a good candle snapshot just because trades are slow.
+            logger.warning("Trade fetch timed out after 20s — using empty trades")
+            trades = None
         except Exception as exc:
-            logger.error("Trade fetch failed: %s", exc)
-            return None
+            logger.warning("Trade fetch failed: %s — using empty trades", exc)
+            trades = None
 
     if candles is None or candles.empty:
         return None
