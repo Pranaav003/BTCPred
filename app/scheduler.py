@@ -136,7 +136,11 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 return
 
             ticker = str(snapshot["market_ticker"])
-            existing = LiveTrade.query.filter_by(ticker=ticker, resolved=False).first()
+            existing = LiveTrade.query.filter(
+                LiveTrade.ticker == ticker,
+                LiveTrade.resolved.is_(False),
+                LiveTrade.order_status.notin_(["unfilled", "failed", "cancelled"]),
+            ).first()
             if existing:
                 logger.info(
                     "Live trade skipped: open %s position already exists on %s",
