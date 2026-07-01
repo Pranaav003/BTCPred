@@ -61,8 +61,8 @@ def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -
             response = requests.get(url, params=params, timeout=KALSHI_GET_TIMEOUT)
             if response.status_code == 429:
                 if attempt == 0:
-                    logger.warning("Rate limited by Kalshi — waiting 3s (attempt 1/2) url=%s", url)
-                    time.sleep(3)
+                    logger.warning("Rate limited by Kalshi — waiting 5s (attempt 1/2) url=%s", url)
+                    time.sleep(5)
                     continue
                 logger.warning("Rate limited twice — skipping this cycle url=%s", url)
                 return None
@@ -289,7 +289,11 @@ def _fetch_candles(ticker: str, close_ts: int) -> pd.DataFrame:
 
 
 def get_candles(ticker: str, close_ts: int) -> pd.DataFrame:
-    """Fetch minute candles; results cached briefly (same inputs → same snapshot logic)."""
+    """Fetch minute candles; results cached briefly (same inputs → same snapshot logic).
+
+    When a fresh fetch fails (rate limit, timeout), returns stale cached data
+    instead of an empty DataFrame — stale data is better than no data.
+    """
     cache_key = f"{ticker}_{int(close_ts)}"
     with _cache_lock:
         now = time.time()
@@ -300,6 +304,16 @@ def get_candles(ticker: str, close_ts: int) -> pd.DataFrame:
                 return df.copy()
 
     result = _fetch_candles(ticker, close_ts)
+
+    # If fetch returned empty data, try to use stale cache instead.
+    if result is None or (isinstance(result, pd.DataFrame) and result.empty):
+        with _cache_lock:
+            cached = _candle_cache.get(cache_key)
+            if cached:
+                stale_df = cached.get("data")
+                if isinstance(stale_df, pd.DataFrame) and not stale_df.empty:
+                    logger.info("Candle fetch failed — using stale cache for %s", ticker)
+                    return stale_df.copy()
 
     with _cache_lock:
         _candle_cache[cache_key] = {"data": result, "ts": time.time()}
@@ -382,7 +396,11 @@ def _fetch_trades(ticker: str, start_ts: int, end_ts: int) -> pd.DataFrame:
 
 
 def get_trades(ticker: str, start_ts: int, end_ts: int) -> pd.DataFrame:
-    """Fetch trades; responses cached briefly per ticker + 30s-bucketed window."""
+    """Fetch trades; responses cached briefly per ticker + 30s-bucketed window.
+
+    When a fresh fetch fails (rate limit, timeout), returns stale cached data
+    instead of an empty DataFrame — stale data is better than no data.
+    """
     cache_key = f"{ticker}_{int(start_ts) // 30}_{int(end_ts) // 30}"
     with _cache_lock:
         now = time.time()
@@ -393,6 +411,16 @@ def get_trades(ticker: str, start_ts: int, end_ts: int) -> pd.DataFrame:
                 return df.copy()
 
     result = _fetch_trades(ticker, start_ts, end_ts)
+
+    # If fetch returned empty data, try to use stale cache instead.
+    if result is None or (isinstance(result, pd.DataFrame) and result.empty):
+        with _cache_lock:
+            cached = _trade_cache.get(cache_key)
+            if cached:
+                stale_df = cached.get("data")
+                if isinstance(stale_df, pd.DataFrame) and not stale_df.empty:
+                    logger.info("Trade fetch failed — using stale cache for %s", ticker)
+                    return stale_df.copy()
 
     with _cache_lock:
         _trade_cache[cache_key] = {"data": result, "ts": time.time()}
