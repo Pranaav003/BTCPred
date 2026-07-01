@@ -117,7 +117,7 @@ def place_order(
         "side": book_side,
         "count": f"{int(count)}.00",
         "price": price_str,
-        "time_in_force": "gtc" if gtc else "immediate_or_cancel",
+        "time_in_force": "good_til_canceled" if gtc else "immediate_or_cancel",
         "self_trade_prevention_type": "taker_at_cross",
     }
     headers = get_kalshi_headers("POST", path)
