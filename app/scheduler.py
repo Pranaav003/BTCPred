@@ -702,8 +702,9 @@ def init_scheduler(app):
     if _SCHEDULER_INSTANCE is not None and _SCHEDULER_INSTANCE.running:
         return _SCHEDULER_INSTANCE
 
-    # Fixed 30s poll: keeps Kalshi retry headroom (~3s) under max_instances=1 without overlap.
-    poll_seconds = 30
+    # 45s poll: reduced from 30s to ease Kalshi rate-limit pressure.
+    # With 15-min markets this gives ~20 poll opportunities per market — plenty for GTC orders.
+    poll_seconds = 45
 
     scheduler_instance = BackgroundScheduler(timezone="UTC")
     scheduler_instance.add_job(

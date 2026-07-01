@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 import numpy as np
 import pandas as pd
 
-from app.kalshi_client import PREFERRED_STRIKE, get_active_market, get_candles, get_trades
+from app.kalshi_client import PREFERRED_STRIKE, get_active_market, get_candles, get_trades, is_rate_limited
 
 
 def _safe_std(series: pd.Series) -> float:
@@ -160,7 +160,13 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
         candle_future = ex.submit(get_candles, str(ticker), int(close_ts))
-        trade_future = ex.submit(get_trades, str(ticker), snapshot_ts - 600, snapshot_ts)
+        # Skip trade fetch when under rate-limit pressure to preserve budget for candles.
+        # Trades are optional — empty DataFrame is handled gracefully downstream.
+        if is_rate_limited():
+            logger.info("Rate-limit pressure — skipping trade fetch to preserve budget")
+            trade_future = None
+        else:
+            trade_future = ex.submit(get_trades, str(ticker), snapshot_ts - 600, snapshot_ts)
         try:
             candles = candle_future.result(timeout=20)
         except TimeoutError:
@@ -169,15 +175,18 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
         except Exception as exc:
             logger.error("Candle fetch failed: %s", exc)
             return None
-        try:
-            trades = trade_future.result(timeout=20)
-        except TimeoutError:
-            # Trade data is optional — candles are enough for most features.
-            # Don't discard a good candle snapshot just because trades are slow.
-            logger.warning("Trade fetch timed out after 20s — using empty trades")
-            trades = None
-        except Exception as exc:
-            logger.warning("Trade fetch failed: %s — using empty trades", exc)
+        if trade_future is not None:
+            try:
+                trades = trade_future.result(timeout=20)
+            except TimeoutError:
+                # Trade data is optional — candles are enough for most features.
+                # Don't discard a good candle snapshot just because trades are slow.
+                logger.warning("Trade fetch timed out after 20s — using empty trades")
+                trades = None
+            except Exception as exc:
+                logger.warning("Trade fetch failed: %s — using empty trades", exc)
+                trades = None
+        else:
             trades = None
 
     if candles is None or candles.empty:

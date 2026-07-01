@@ -31,24 +31,33 @@ _request_lock = Lock()
 _last_request_time = 0.0
 _min_request_interval = 0.5
 
-MARKET_CACHE_TTL = 30.0
-CANDLE_CACHE_TTL = 12.0
-TRADE_CACHE_TTL = 10.0
+MARKET_CACHE_TTL = 120.0  # Market only changes every 15m; no need to re-fetch every poll
+CANDLE_CACHE_TTL = 25.0   # Survives 45s poll interval; stale 25s candle is fine for 15m market
+TRADE_CACHE_TTL = 25.0    # Same rationale as candles
 _MAX_CANDLE_CACHE_ENTRIES = 10
 _MAX_TRADE_CACHE_ENTRIES = 20
+
+# Rate-limit pressure tracking: when set, optional fetches (trades) are skipped
+# to preserve budget for critical fetches (candles, market list).
+_rate_limit_pressure_until = 0.0
 # Authenticated endpoints (see kalshi_trader.py):
 # - POST /portfolio/events/orders (V2 order placement)
 # - GET /portfolio/balance
 # - GET /portfolio/settlements
 
 
-def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -> dict | None:
-    """GET JSON helper: paced requests, one short 429 retry (3s), then give up.
+def is_rate_limited() -> bool:
+    """Check if we're currently under rate-limit pressure."""
+    return time.time() < _rate_limit_pressure_until
 
-    Avoids long blocking sleeps (previously 5s+15s) that stacked with APScheduler
+
+def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -> dict | None:
+    """GET JSON helper: paced requests, one 429 retry (8s), then give up.
+
+    Avoids long blocking sleeps that stacked with APScheduler
     and starved workers under rate limits.
     """
-    global _last_request_time
+    global _last_request_time, _rate_limit_pressure_until
     for attempt in range(max_retries):
         try:
             with _request_lock:
@@ -60,9 +69,11 @@ def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -
 
             response = requests.get(url, params=params, timeout=KALSHI_GET_TIMEOUT)
             if response.status_code == 429:
+                # Set rate pressure flag for 30s — optional fetches will back off
+                _rate_limit_pressure_until = time.time() + 30
                 if attempt == 0:
-                    logger.warning("Rate limited by Kalshi — waiting 5s (attempt 1/2) url=%s", url)
-                    time.sleep(5)
+                    logger.warning("Rate limited by Kalshi — waiting 8s (attempt 1/2) url=%s", url)
+                    time.sleep(8)
                     continue
                 logger.warning("Rate limited twice — skipping this cycle url=%s", url)
                 return None
@@ -308,12 +319,33 @@ def get_candles(ticker: str, close_ts: int) -> pd.DataFrame:
     # If fetch returned empty data, try to use stale cache instead.
     if result is None or (isinstance(result, pd.DataFrame) and result.empty):
         with _cache_lock:
+            # First try: exact ticker match (same market, stale data)
             cached = _candle_cache.get(cache_key)
             if cached:
                 stale_df = cached.get("data")
                 if isinstance(stale_df, pd.DataFrame) and not stale_df.empty:
                     logger.info("Candle fetch failed — using stale cache for %s", ticker)
                     return stale_df.copy()
+
+            # Second try: ANY recent candle cache entry (cross-market fallback).
+            # At market transitions, the new ticker has no cache yet, but the
+            # previous market's candles are nearly identical (same BTC price).
+            best_entry = None
+            best_ts = 0.0
+            for _key, entry in _candle_cache.items():
+                entry_ts = float(entry.get("ts") or 0)
+                entry_df = entry.get("data")
+                if isinstance(entry_df, pd.DataFrame) and not entry_df.empty and entry_ts > best_ts:
+                    best_entry = entry_df
+                    best_ts = entry_ts
+            if best_entry is not None:
+                age = time.time() - best_ts
+                logger.info(
+                    "Candle fetch failed — using cross-market stale cache (%.0fs old) for %s",
+                    age,
+                    ticker,
+                )
+                return best_entry.copy()
 
     with _cache_lock:
         _candle_cache[cache_key] = {"data": result, "ts": time.time()}
