@@ -93,7 +93,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
     """Place a real Kalshi order mirroring the signal. All safety checks run first."""
     from datetime import datetime, timezone
 
-    from app.kalshi_trader import cancel_order, get_balance, place_order
+    from app.kalshi_trader import get_balance, get_order_status, place_order
     from app.model_loader import get_model
     from app.models import LiveTrade, db
     from app.signal_engine import MIN_ENTRY_PRICE
@@ -136,18 +136,100 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 return
 
             ticker = str(snapshot["market_ticker"])
+
+            # --- Resting-aware position check ---
+            # Before placing a new order, check if we already have a trade on
+            # this ticker.  For "placed" (filled) trades we skip — we have a
+            # real position.  For "resting" (GTC in book) trades we query
+            # Kalshi to see if they've filled since we last checked.
             existing = LiveTrade.query.filter(
                 LiveTrade.ticker == ticker,
                 LiveTrade.resolved.is_(False),
                 LiveTrade.order_status.notin_(["unfilled", "failed", "cancelled"]),
             ).first()
+
             if existing:
-                logger.info(
-                    "Live trade skipped: open %s position already exists on %s",
-                    existing.side,
-                    ticker,
-                )
-                return
+                if existing.order_status == "resting" and existing.kalshi_order_id:
+                    # GTC order is resting — check if it has filled.
+                    status = get_order_status(existing.kalshi_order_id)
+                    if status is None:
+                        # Can't reach Kalshi — assume still resting, don't
+                        # place a duplicate.
+                        logger.info(
+                            "Live trade skipped: resting order %s on %s, "
+                            "can't verify fill status — waiting",
+                            existing.kalshi_order_id,
+                            ticker,
+                        )
+                        return
+
+                    kalshi_status = status.get("status", "unknown")
+                    fill_count = status.get("fill_count", 0)
+
+                    if fill_count >= 1:
+                        # Order has (partially) filled while resting!
+                        # Update the existing LiveTrade row.
+                        existing.order_status = "placed"
+                        existing.contracts = fill_count
+                        avg_price = status.get("average_fill_price")
+                        if avg_price is not None:
+                            existing.entry_price = float(avg_price)
+                            existing.entry_price_cents = max(
+                                1, min(99, int(round(float(avg_price) * 100)))
+                            )
+                        fill_cost = status.get("fill_cost_dollars")
+                        if fill_cost is not None:
+                            existing.cost_dollars = float(fill_cost)
+                        else:
+                            existing.cost_dollars = fill_count * existing.entry_price
+                        existing.error_detail = None
+                        db.session.commit()
+                        # Clear the resting-order tracker since it's now filled.
+                        set_setting(f"live_resting_order_{ticker}", "")
+                        logger.info(
+                            "Resting GTC order %s FILLED: %s %s contracts on %s "
+                            "(detected during position check)",
+                            existing.kalshi_order_id,
+                            existing.side,
+                            fill_count,
+                            ticker,
+                        )
+                        # We now have a real position — don't place another.
+                        return
+
+                    if kalshi_status in ("cancelled", "expired", "rejected"):
+                        # Order was killed externally (or by the resolver for a
+                        # closed market).  Mark it and allow a fresh order.
+                        logger.info(
+                            "Resting order %s on %s is %s — allowing new order",
+                            existing.kalshi_order_id,
+                            ticker,
+                            kalshi_status,
+                        )
+                        existing.order_status = "cancelled"
+                        set_setting(f"live_resting_order_{ticker}", "")
+                        db.session.commit()
+                        # Fall through to place a new order below.
+
+                    else:
+                        # Still resting / open — don't place a duplicate.
+                        logger.info(
+                            "Live trade skipped: GTC order %s still resting on %s "
+                            "(status=%s, 0 fills) — waiting for fill",
+                            existing.kalshi_order_id,
+                            ticker,
+                            kalshi_status,
+                        )
+                        return
+
+                else:
+                    # "placed" (filled) trade — real open position exists.
+                    logger.info(
+                        "Live trade skipped: open %s position already exists on %s",
+                        existing.side,
+                        ticker,
+                    )
+                    return
 
             seconds_left = math.ceil(float(snapshot.get("seconds_to_close", 0) or 0))
             if seconds_left < MIN_SECONDS_FOR_AUTO_TRADE:
@@ -253,15 +335,6 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 price_cents = max(1, min(99, raw_cents + aggressive_offset))
             actual_cost = contracts * entry_price
 
-            # --- Cancel any stale resting GTC order on the same ticker ---
-            # Before placing a new order, cancel any existing resting order
-            # so we don't stack up unfilled orders on the same market.
-            stale_order_id = get_setting(f"live_resting_order_{ticker}")
-            if stale_order_id:
-                logger.info("Cancelling stale resting order %s on %s", stale_order_id, ticker)
-                cancel_order(stale_order_id)
-                set_setting(f"live_resting_order_{ticker}", "")
-
             logger.info(
                 "Placing live GTC order: %s %s contracts on %s at %sc (+%dc offset, $%.2f risk, balance $%.2f)",
                 side.upper(),
@@ -303,7 +376,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 if order_result.get("resting") and not filled_contracts:
                     order_id = order_result.get("order_id", "unknown")
                     set_setting(f"live_resting_order_{ticker}", order_id)
-                    logger.info("GTC order %s resting on %s — will cancel before next trade", order_id, ticker)
+                    logger.info("GTC order %s resting on %s — will check fill status on next poll", order_id, ticker)
                     contracts = 0
                     actual_cost = 0.0
                     order_status = "resting"

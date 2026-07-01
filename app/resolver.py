@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timezone
 
 from app.extensions import db
-from app.db_helpers import resolve_paper_trades
+from app.db_helpers import get_setting, resolve_paper_trades, set_setting
 from app.kalshi_client import get_market_resolution
 from app.models import Market, Signal
 
@@ -168,21 +168,43 @@ def _apply_kalshi_settlement(trade, settlement: dict, now_utc: datetime) -> bool
 def resolve_live_trades() -> int:
     """Resolve or reconcile live trades using Kalshi settlement data."""
     from app.kalshi_trader import cancel_order, get_settlement_for_ticker, is_configured
-    from app.models import LiveTrade
+    from app.models import LiveTrade, Market
 
     if not is_configured():
         return 0
 
-    # Cancel any resting GTC orders on resolved markets so they don't linger.
+    # Cancel resting GTC orders ONLY on markets that have already closed.
+    # Active-market resting orders should be left alone — they may still fill.
+    now_utc = datetime.now(timezone.utc)
+    closed_tickers = {
+        m.ticker
+        for m in Market.query.filter(Market.close_time < now_utc).all()
+    }
     resting_trades = LiveTrade.query.filter(
         LiveTrade.order_status == "resting",
         LiveTrade.kalshi_order_id.isnot(None),
     ).all()
+    cancelled_count = 0
     for rt in resting_trades:
-        logger.info("Cancelling resting GTC order %s on %s during resolution", rt.kalshi_order_id, rt.ticker)
-        cancel_order(rt.kalshi_order_id)
-        rt.order_status = "cancelled"
-    if resting_trades:
+        if rt.ticker in closed_tickers:
+            logger.info(
+                "Cancelling resting GTC order %s on closed market %s during resolution",
+                rt.kalshi_order_id,
+                rt.ticker,
+            )
+            cancel_order(rt.kalshi_order_id)
+            rt.order_status = "cancelled"
+            # Clear the resting-order tracker so the scheduler doesn't try
+            # to query a dead order on the next poll.
+            set_setting(f"live_resting_order_{rt.ticker}", "")
+            cancelled_count += 1
+        else:
+            logger.debug(
+                "Leaving resting GTC order %s on active market %s (waiting for fill)",
+                rt.kalshi_order_id,
+                rt.ticker,
+            )
+    if cancelled_count:
         from app import db as _db
         _db.session.commit()
 
@@ -198,7 +220,6 @@ def resolve_live_trades() -> int:
         return 0
 
     updated = 0
-    now_utc = datetime.now(timezone.utc)
     settlement_cache: dict[str, dict | None] = {}
     resolution_cache: dict[str, dict | None] = {}
 

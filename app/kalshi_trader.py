@@ -208,6 +208,48 @@ def place_order(
         return {"error": str(exc)}
 
 
+def get_order_status(order_id: str) -> dict | None:
+    """Check the fill status of a Kalshi order (GTC resting or otherwise).
+
+    Returns a dict with keys: status, fill_count, fill_cost_dollars,
+    average_fill_price, or None if the request fails.
+    """
+    if not is_configured():
+        return None
+    path = f"/portfolio/events/orders/{order_id}"
+    headers = get_kalshi_headers("GET", path)
+    if not headers:
+        return None
+    try:
+        response = requests.get(
+            TRADING_BASE_URL + path,
+            headers=headers,
+            timeout=10,
+        )
+        if response.status_code == 200:
+            data = response.json()
+            order = data.get("order") if isinstance(data.get("order"), dict) else data
+            fill = _parse_order_fill(order)
+            return {
+                "status": order.get("status", "unknown"),
+                "fill_count": int(fill["fill_count"]) if fill["fill_count"] >= 1 else 0,
+                "fill_cost_dollars": fill["fill_cost_dollars"],
+                "average_fill_price": fill["average_fill_price"],
+                "order_id": order.get("order_id", order_id),
+                "raw": order,
+            }
+        logger.warning(
+            "Order status fetch failed for %s: %s %s",
+            order_id,
+            response.status_code,
+            response.text[:200],
+        )
+        return None
+    except Exception as exc:
+        logger.error("Order status fetch error for %s: %s", order_id, exc)
+        return None
+
+
 def cancel_order(order_id: str) -> dict:
     """Cancel a resting (GTC) order on Kalshi."""
     if not is_configured():
