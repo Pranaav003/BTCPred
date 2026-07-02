@@ -117,12 +117,9 @@ def place_order(
         "side": book_side,
         "count": f"{int(count)}.00",
         "price": price_str,
+        "time_in_force": "immediate_or_cancel",
         "self_trade_prevention_type": "taker_at_cross",
     }
-    # Only set time_in_force for IOC — omitting it lets Kalshi default to
-    # resting (GTC/GFD) which is what we want for limit orders.
-    if not gtc:
-        body["time_in_force"] = "immediate_or_cancel"
     headers = get_kalshi_headers("POST", path)
     if not headers:
         return {"error": "Failed to generate auth headers"}
