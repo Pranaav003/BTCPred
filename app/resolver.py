@@ -102,18 +102,40 @@ def resolve_market(market):
 
 
 def resolve_pending_markets():
-    """Resolve all past-close unresolved markets. Never raises."""
+    """Resolve all past-close unresolved markets (last 24h only to avoid API spam).
+
+    Older markets that Kalshi returns 500 for are marked resolved to stop
+    the resolver from retrying them every 60 seconds and eating rate limit budget.
+    """
+    from datetime import timedelta
+
     try:
         now_utc = datetime.now(timezone.utc)
+        # Only attempt resolution for markets closed in the last 24 hours.
+        # Older markets consistently return 500 from Kalshi and just waste API calls.
+        cutoff = now_utc - timedelta(hours=24)
         pending = Market.query.filter(
             Market.resolved.is_(False),
             Market.close_time < now_utc,
+            Market.close_time >= cutoff,
         ).all()
 
         resolved_count = 0
         for market in pending:
             if resolve_market(market):
                 resolved_count += 1
+
+        # Mark very old unresolved markets as resolved (unknown outcome) to stop retrying.
+        ancient = Market.query.filter(
+            Market.resolved.is_(False),
+            Market.close_time < cutoff,
+        ).all()
+        if ancient:
+            for market in ancient:
+                market.resolved = True
+            db.session.commit()
+            logger.info("Marked %d ancient unresolved markets as resolved (stale)", len(ancient))
+
         return resolved_count
     except Exception:
         logger.exception("Failed to resolve pending markets")
@@ -166,7 +188,12 @@ def _apply_kalshi_settlement(trade, settlement: dict, now_utc: datetime) -> bool
 
 
 def resolve_live_trades() -> int:
-    """Resolve or reconcile live trades using Kalshi settlement data."""
+    """Resolve or reconcile live trades using Kalshi settlement data.
+
+    Only processes trades from the last 48 hours to avoid hammering the API
+    with old tickers that return 500.
+    """
+    from datetime import timedelta
     from app.kalshi_trader import cancel_order, get_settlement_for_ticker, is_configured
     from app.models import LiveTrade, Market
 
@@ -208,10 +235,13 @@ def resolve_live_trades() -> int:
         from app import db as _db
         _db.session.commit()
 
+    # Only try to settle trades from last 48h — older ones just spam 500s.
+    cutoff = now_utc - timedelta(hours=48)
     trades = (
         LiveTrade.query.filter(
             LiveTrade.kalshi_order_id.isnot(None),
             LiveTrade.order_status != "failed",
+            LiveTrade.entry_at >= cutoff,
         )
         .order_by(LiveTrade.entry_at.asc())
         .all()
