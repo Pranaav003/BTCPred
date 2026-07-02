@@ -352,6 +352,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 count=contracts,
                 price_cents=price_cents,
                 gtc=True,
+                expiration_ts=int(snapshot["close_ts"]) - 60,
             )
 
             # Track fill rate for observability.

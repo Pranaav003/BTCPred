@@ -86,11 +86,13 @@ def place_order(
     count: int,
     price_cents: int,
     gtc: bool = False,
+    expiration_ts: int | None = None,
 ) -> dict:
     """Place a limit order on Kalshi (V2 events API).
 
     By default uses IOC (immediate-or-cancel). Set gtc=True to place a
-    good-til-cancelled order that rests in the book until filled or cancelled.
+    good-till-canceled order that rests in the book until filled or cancelled.
+    Provide expiration_ts (unix seconds) to auto-cancel before market close.
     """
     if not is_configured():
         return {"error": "API keys not configured"}
@@ -117,9 +119,12 @@ def place_order(
         "side": book_side,
         "count": f"{int(count)}.00",
         "price": price_str,
-        "time_in_force": "immediate_or_cancel",
+        "time_in_force": "good_till_canceled" if gtc else "immediate_or_cancel",
         "self_trade_prevention_type": "taker_at_cross",
     }
+    # Auto-expire GTC orders before market close to avoid holding into resolution.
+    if gtc and expiration_ts is not None:
+        body["expiration_time"] = int(expiration_ts)
     headers = get_kalshi_headers("POST", path)
     if not headers:
         return {"error": "Failed to generate auth headers"}
