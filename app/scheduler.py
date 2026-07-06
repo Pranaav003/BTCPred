@@ -142,10 +142,11 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
             # this ticker.  For "placed" (filled) trades we skip — we have a
             # real position.  For "resting" (GTC in book) trades we query
             # Kalshi to see if they've filled since we last checked.
+            # Note: We include "cancelled" and "expired" so we can clean them up.
             existing = LiveTrade.query.filter(
                 LiveTrade.ticker == ticker,
                 LiveTrade.resolved.is_(False),
-                LiveTrade.order_status.notin_(["unfilled", "failed", "cancelled"]),
+                LiveTrade.order_status.notin_(["unfilled", "failed"]),
             ).first()
 
             if existing:
@@ -335,8 +336,21 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 price_cents = max(1, min(99, raw_cents + aggressive_offset))
             actual_cost = contracts * entry_price
 
+            # Calculate expiration time (60s before market close)
+            expiration_ts = int(snapshot["close_ts"]) - 60
+            now_ts = int(time.time())
+            time_until_expiration = expiration_ts - now_ts
+            
+            # Safety check: don't place orders that expire in <90s
+            if time_until_expiration < 90:
+                logger.warning(
+                    "Live trade skipped: order would expire in %ss (min 90s required)",
+                    time_until_expiration,
+                )
+                return
+            
             logger.info(
-                "Placing live GTC order: %s %s contracts on %s at %sc (+%dc offset, $%.2f risk, balance $%.2f)",
+                "Placing live GTC order: %s %s contracts on %s at %sc (+%dc offset, $%.2f risk, balance $%.2f, expires in %ss)",
                 side.upper(),
                 contracts,
                 ticker,
@@ -344,6 +358,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 aggressive_offset,
                 actual_cost,
                 available,
+                time_until_expiration,
             )
 
             order_result = place_order(
@@ -352,7 +367,7 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 count=contracts,
                 price_cents=price_cents,
                 gtc=True,
-                expiration_ts=int(snapshot["close_ts"]) - 60,
+                expiration_ts=expiration_ts,
             )
 
             # Track fill rate for observability.
@@ -684,6 +699,99 @@ def auto_export_job() -> None:
         logger.exception("auto_export_job failed")
 
 
+def cleanup_resting_orders_job() -> None:
+    """Sync status of all resting GTC orders from Kalshi and clean up expired/cancelled ones."""
+    try:
+        if _app is None:
+            logger.error("cleanup_resting_orders_job called before scheduler app initialization.")
+            return
+        
+        from app.kalshi_trader import get_order_status
+        from app.models import LiveTrade, db
+        
+        with _app.app_context():
+            # Find all resting orders that haven't been resolved yet
+            resting_orders = LiveTrade.query.filter(
+                LiveTrade.order_status == "resting",
+                LiveTrade.resolved.is_(False),
+            ).all()
+            
+            if not resting_orders:
+                logger.debug("No resting orders to clean up")
+                return
+            
+            logger.info("Checking status of %s resting order(s)", len(resting_orders))
+            cleaned = 0
+            filled = 0
+            
+            for trade in resting_orders:
+                if not trade.kalshi_order_id:
+                    logger.warning("Resting trade %s has no order_id, marking as failed", trade.id)
+                    trade.order_status = "failed"
+                    trade.error_detail = "No order ID recorded"
+                    cleaned += 1
+                    continue
+                
+                status = get_order_status(trade.kalshi_order_id)
+                if status is None:
+                    logger.debug("Could not fetch status for order %s, skipping", trade.kalshi_order_id)
+                    continue
+                
+                kalshi_status = status.get("status", "unknown")
+                fill_count = status.get("fill_count", 0)
+                
+                if fill_count >= 1:
+                    # Order filled while resting!
+                    trade.order_status = "placed"
+                    trade.contracts = fill_count
+                    avg_price = status.get("average_fill_price")
+                    if avg_price is not None:
+                        trade.entry_price = float(avg_price)
+                        trade.entry_price_cents = max(1, min(99, int(round(float(avg_price) * 100))))
+                    fill_cost = status.get("fill_cost_dollars")
+                    if fill_cost is not None:
+                        trade.cost_dollars = float(fill_cost)
+                    else:
+                        trade.cost_dollars = fill_count * trade.entry_price
+                    trade.error_detail = None
+                    # Clear the resting order tracker
+                    set_setting(f"live_resting_order_{trade.ticker}", "")
+                    logger.info(
+                        "Resting order %s FILLED during cleanup: %s %s contracts on %s",
+                        trade.kalshi_order_id,
+                        trade.side,
+                        fill_count,
+                        trade.ticker,
+                    )
+                    filled += 1
+                elif kalshi_status in ("cancelled", "expired", "rejected"):
+                    # Order was killed - clean it up
+                    trade.order_status = kalshi_status
+                    if kalshi_status == "expired":
+                        trade.error_detail = "Order expired before fill"
+                    elif kalshi_status == "cancelled":
+                        trade.error_detail = "Order cancelled externally"
+                    else:
+                        trade.error_detail = f"Order {kalshi_status}"
+                    set_setting(f"live_resting_order_{trade.ticker}", "")
+                    logger.info(
+                        "Resting order %s is %s, cleaned up",
+                        trade.kalshi_order_id,
+                        kalshi_status,
+                    )
+                    cleaned += 1
+            
+            if cleaned > 0 or filled > 0:
+                db.session.commit()
+                logger.info(
+                    "Cleanup complete: %s order(s) filled, %s order(s) cleaned up",
+                    filled,
+                    cleaned,
+                )
+    except Exception:
+        logger.exception("cleanup_resting_orders_job failed")
+
+
 def get_latest_snapshot():
     """Return latest cached market snapshot from scheduler polling."""
     return _latest_snapshot
@@ -734,8 +842,16 @@ def init_scheduler(app):
         replace_existing=True,
         misfire_grace_time=60,
     )
+    scheduler_instance.add_job(
+        cleanup_resting_orders_job,
+        trigger="interval",
+        minutes=5,
+        id="cleanup_resting_orders",
+        replace_existing=True,
+        misfire_grace_time=30,
+    )
     scheduler_instance.start()
-    logger.info("Scheduler started, polling every %ss", poll_seconds)
+    logger.info("Scheduler started, polling every %ss, cleanup every 5min", poll_seconds)
 
     def _warmup_cache() -> None:
         time.sleep(2)
