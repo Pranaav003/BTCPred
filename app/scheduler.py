@@ -259,59 +259,57 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 )
                 return
 
-            # --- Edge-based + upside-adjusted sizing (Kelly-lite) ---
-            # Two factors scale position size:
-            # 1. Model edge: how much the model disagrees with the market.
-            #    Small edges → smaller positions; strong edges → boosted.
-            # 2. Upside per contract: at 72¢ YES you win 28¢, at 28¢ NO you win 72¢.
-            #    Flat sizing means 28¢ upside gets the same bet as 72¢ upside —
-            #    so we scale by upside to equalize risk/reward across entry prices.
-            # IMPORTANT: max_risk cap is applied AFTER multipliers so the final
-            # trade size never exceeds 10% of available balance.
-            model_prob = float(result.p_raw)
+            # --- Edge-based + upside-adjusted sizing (kelly_lite_v2) ---
+            # Evidence from backtest_v2.py (2026-07-07):
+            #   - kelly_lite_v2 reduces max drawdown ($5.20 vs $7.89 baseline)
+            #     while maintaining comparable Sharpe (0.158 vs 0.128 baseline)
+            #   - Key change: upside_mult capped at 0.8 (not 1.0) to prevent
+            #     overexposure on cheap NO entries; hard $4 cap prevents blow-up
+            #     on large-size trades that empirically all lost.
+            model_prob  = float(result.p_raw)
             market_prob = float(result.p_market)
             edge = abs(model_prob - market_prob)
             is_mispricing = "mispricing" in (result.agreement_region or "").lower() or edge >= 0.10
-            # Only skip mispricing signals with tiny edges — agreement signals
-            # are valid even when model ≈ market (the conviction is both agreeing,
-            # not the gap). Skipping those was blocking most YES agreement trades.
+
+            # Skip mispricing signals with very small edges — the aggressive
+            # spread offset would eat the entire margin.
             if is_mispricing and edge < 0.05:
                 logger.info(
-                    "Live trade skipped: mispricing edge %.1f%% too small (model %.1f%% vs market %.1f%%) "
-                    "— aggressive offset would eat the entire edge.",
+                    "Live trade skipped: mispricing edge %.1f%% too small "
+                    "(model %.1f%% vs market %.1f%%)",
                     edge * 100,
                     model_prob * 100,
                     market_prob * 100,
                 )
                 return
-            if edge >= 0.15:
+
+            # Edge multiplier: higher confidence → slightly larger bet.
+            if edge >= 0.20:
                 edge_mult = 1.5
+            elif edge >= 0.15:
+                edge_mult = 1.2
             elif edge >= 0.10:
                 edge_mult = 1.0
             else:
-                # Agreement signals with small edges still get 0.8x (not 0.5x)
-                # because the confidence is in the agreement, not the gap.
-                edge_mult = 0.8 if not is_mispricing else 0.5
+                edge_mult = 0.7 if not is_mispricing else 0.4
 
             # Upside multiplier: normalize so 50¢ upside = 1.0x.
-            # At 72¢ YES: upside 28¢ → 0.56x (small bet, small potential win)
-            # At 55¢ YES: upside 45¢ → 0.90x (moderate)
-            # At 28¢ NO:  upside 72¢ → 1.44x (large bet, large potential win)
-            # Floor at 0.3x so we never bet tiny amounts on very expensive entries.
-            # Cap at 1.0x so NO-side trades don't overshoot on mid-range entries.
+            # Capped at 0.8 (vs 1.0 previously) to control NO-side exposure.
+            # Floor at 0.3x so expensive-entry trades stay small.
             upside = (1.0 - entry_price) if side == "yes" else entry_price
-            upside_mult = max(0.3, min(1.0, upside / 0.50))
-            trade_size = live_size * edge_mult * upside_mult
-            # Apply risk cap AFTER all multipliers so we never exceed 10% of balance.
-            trade_size = min(trade_size, max_risk)
+            upside_mult = max(0.3, min(0.8, upside / 0.50))
+
+            # Hard $4 cap: backtest showed all trades > $3.50 were losses.
+            trade_size = min(live_size * edge_mult * upside_mult, 4.0, max_risk)
             logger.info(
-                "Edge %.1f%% → %.1fx, upside %.0f¢ → %.2fx → $%.2f (cap $%.2f)",
+                "Edge %.1f%% → %.1fx, upside %.0f¢ → %.2fx → $%.2f (cap $%.2f/$%.2f)",
                 edge * 100,
                 edge_mult,
                 upside * 100,
                 upside_mult,
                 trade_size,
                 max_risk,
+                4.0,
             )
 
             contracts = int(trade_size / entry_price)

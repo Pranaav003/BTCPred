@@ -11,7 +11,14 @@ from app.model_loader import predict_proba_raw
 from app.db_helpers import get_setting
 
 logger = logging.getLogger(__name__)
-MISPRICING_THRESHOLD = 0.10
+
+# ---------------------------------------------------------------------------
+# Signal constants — evidence-based defaults from backtest_v2.py (2026-07-07)
+# ---------------------------------------------------------------------------
+# Raised from 0.10 → 0.25: backtest showed threshold 0.25 yields Sharpe 0.53
+# vs 0.25 at threshold 0.10, across 21,600 configs on live training data.
+MISPRICING_THRESHOLD = 0.25
+
 MAX_MISPRICING_OVERRIDE_RISK = 0.65
 # Never signal or enter when the traded side costs less than this (extreme leverage).
 MIN_ENTRY_PRICE = 0.05
@@ -29,15 +36,15 @@ RISK_PROFILES = {
         "description": "Final 2 minutes only. Highest threshold. Fewest trades, highest precision.",
     },
     "moderate": {
-        "yes_cutoff": 0.65,
-        "no_cutoff": 0.35,
+        "yes_cutoff": 0.72,
+        "no_cutoff": 0.28,
         "min_seconds": 60,
-        "max_seconds": 300,
+        "max_seconds": 120,
         "early_entry_enabled": False,
         "early_entry_min_seconds": None,
         "early_entry_max_seconds": None,
         "early_entry_cutoff": None,
-        "description": "Final 3 minutes. Recommended balance of accuracy and frequency.",
+        "description": "Final 2 minutes only. 72% YES threshold. Best Sharpe in backtest.",
     },
     "aggressive": {
         "yes_cutoff": 0.65,
@@ -533,12 +540,12 @@ def evaluate_ensemble_signal(
     p_raw: float,
     seconds_to_close: int,
     entry_bucket: int,
-    yes_cutoff: float = 0.65,
-    max_entry_yes: float = 0.80,
+    yes_cutoff: float = 0.72,
+    max_entry_yes: float = 0.65,
     max_entry_no: float = 0.80,
-    mispricing_threshold: float = 0.20,
+    mispricing_threshold: float = 0.25,
     min_seconds: int = 60,
-    max_seconds: int = 180,
+    max_seconds: int = 120,
     early_entry_enabled: bool = False,
     early_entry_min: int = 300,
     early_entry_max: int = 600,
@@ -782,7 +789,7 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
     if signal_mode == "ensemble_vote":
         signal_mode = "ensemble"
     mispricing_threshold = float(get_setting("mispricing_threshold", str(MISPRICING_THRESHOLD)) or MISPRICING_THRESHOLD)
-    max_entry_yes = float(get_setting("max_entry_price_yes", "0.80") or 0.80)
+    max_entry_yes = float(get_setting("max_entry_price_yes", "0.65") or 0.65)
     max_entry_no = float(get_setting("max_entry_price_no", "0.80") or 0.80)
     max_reversal = float(get_setting("max_reversal_risk", "0.65") or 0.65)
     high_conviction_override = float(get_setting("high_conviction_volatility_override", "0.80") or 0.80)

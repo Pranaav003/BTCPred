@@ -475,6 +475,7 @@ class TestEvaluateEnsembleSignal:
             seconds_to_close=120,
             entry_bucket=120,
             yes_cutoff=0.65,
+            max_entry_yes=0.80,   # explicit: tests signal logic, not entry cap
             mispricing_threshold=0.20,
             min_seconds=60,
             max_seconds=180,
@@ -592,6 +593,7 @@ class TestEvaluateEnsembleSignal:
             seconds_to_close=120,
             entry_bucket=120,
             yes_cutoff=0.65,
+            max_entry_yes=0.80,   # explicit: tests guard logic, not entry cap
             mispricing_threshold=0.20,
             min_seconds=60,
             max_seconds=180,
@@ -646,3 +648,87 @@ class TestEvaluateEnsembleSignal:
             max_seconds=180,
         )
         assert result.signal == "NO SIGNAL"
+
+
+class TestBacktestValidatedDefaults:
+    """Tests verifying the backtest-validated parameter defaults (2026-07-07)."""
+
+    def test_new_default_max_entry_yes_blocks_expensive_entries(self):
+        """max_entry_yes default 0.65 should block YES at 0.70."""
+        result = evaluate_ensemble_signal(
+            p_market=0.70,
+            p_raw=0.75,
+            seconds_to_close=90,
+            entry_bucket=90,
+            yes_cutoff=0.65,
+            # max_entry_yes omitted → uses new default 0.65
+            mispricing_threshold=0.20,
+            min_seconds=60,
+            max_seconds=180,
+        )
+        assert result.signal == "NO SIGNAL"
+        assert result.agreement_region == "entry_filtered"
+
+    def test_new_default_max_entry_yes_allows_cheap_entries(self):
+        """max_entry_yes default 0.65 should allow YES at 0.60 via mispricing."""
+        # Use a mispricing gap: p_raw=0.87, p_market=0.60, gap=0.27 >= default 0.25
+        # p_market=0.60 <= 0.65 (new default max_entry_yes) → entry OK
+        result = evaluate_ensemble_signal(
+            p_market=0.60,
+            p_raw=0.87,
+            seconds_to_close=90,
+            entry_bucket=90,
+            yes_cutoff=0.72,
+            mispricing_threshold=0.25,  # new default
+            min_seconds=60,
+            max_seconds=120,
+        )
+        assert result.signal == "PAPER BUY YES", (
+            f"Expected YES at p_market=0.60 (below new cap 0.65), got {result.signal}: {result.reason}"
+        )
+        assert result.agreement_region == "model_bullish"
+
+    def test_mispricing_threshold_default_is_0_25(self):
+        """Default mispricing threshold should be 0.25 (raised from 0.10)."""
+        import app.signal_engine as se
+        assert se.MISPRICING_THRESHOLD == 0.25
+
+    def test_mispricing_gap_below_new_threshold_no_signal(self):
+        """Gap of 0.15 (below new 0.25 threshold) should not trigger mispricing."""
+        result = evaluate_ensemble_signal(
+            p_market=0.45,
+            p_raw=0.60,  # gap = 0.15, below 0.25 threshold
+            seconds_to_close=90,
+            entry_bucket=90,
+            yes_cutoff=0.72,
+            mispricing_threshold=0.25,  # new default
+            min_seconds=60,
+            max_seconds=120,
+        )
+        assert result.signal == "NO SIGNAL"
+
+    def test_mispricing_gap_at_new_threshold_triggers_signal(self):
+        """Gap of 0.27 (above new 0.25 threshold) should trigger mispricing YES."""
+        # Use clear values: p_raw=0.87, p_market=0.60, gap=0.27 > 0.25
+        result = evaluate_ensemble_signal(
+            p_market=0.60,
+            p_raw=0.87,
+            seconds_to_close=90,
+            entry_bucket=90,
+            yes_cutoff=0.72,
+            max_entry_yes=0.65,
+            mispricing_threshold=0.25,
+            min_seconds=60,
+            max_seconds=120,
+        )
+        assert result.signal == "PAPER BUY YES", (
+            f"Expected YES mispricing, got {result.signal}: {result.reason}"
+        )
+        assert result.agreement_region == "model_bullish"
+
+    def test_moderate_profile_has_new_defaults(self):
+        """Moderate risk profile should reflect backtest-validated defaults."""
+        import app.signal_engine as se
+        moderate = se.RISK_PROFILES["moderate"]
+        assert moderate["yes_cutoff"] == 0.72, f"Expected 0.72, got {moderate['yes_cutoff']}"
+        assert moderate["max_seconds"] == 120, f"Expected 120, got {moderate['max_seconds']}"
