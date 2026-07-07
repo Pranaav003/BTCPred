@@ -341,10 +341,12 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
             now_ts = int(time.time())
             time_until_expiration = expiration_ts - now_ts
             
-            # Safety check: don't place orders that expire in <90s
-            if time_until_expiration < 90:
+            # Safety check: don't place orders that expire in <30s
+            # (orders already expire 60s before market close, so this ensures
+            # at least 30s for the order to fill after being placed)
+            if time_until_expiration < 30:
                 logger.warning(
-                    "Live trade skipped: order would expire in %ss (min 90s required)",
+                    "Live trade skipped: order would expire in %ss (min 30s required)",
                     time_until_expiration,
                 )
                 return
