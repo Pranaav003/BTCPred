@@ -8,8 +8,12 @@ from datetime import datetime, timezone
 from threading import Lock
 from typing import Any
 
+from urllib.parse import urlsplit
+
 import pandas as pd
 import requests
+
+from app.kalshi_auth import get_kalshi_headers, is_configured
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 SERIES = "KXBTC15M"
@@ -67,7 +71,12 @@ def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -
                     time.sleep(_min_request_interval - elapsed)
                 _last_request_time = time.time()
 
-            response = requests.get(url, params=params, timeout=KALSHI_GET_TIMEOUT)
+            # Authenticate reads so we get the member rate-limit tier instead
+            # of the far stricter anonymous limit (the 2026-07-07 429 spiral).
+            # Signed per attempt so the retry gets a fresh timestamp. Falls back
+            # to anonymous when credentials are not configured.
+            headers = get_kalshi_headers("GET", urlsplit(url).path) if is_configured() else None
+            response = requests.get(url, params=params, headers=headers, timeout=KALSHI_GET_TIMEOUT)
             if response.status_code == 429:
                 # Set rate pressure flag for 30s — optional fetches will back off
                 _rate_limit_pressure_until = time.time() + 30
