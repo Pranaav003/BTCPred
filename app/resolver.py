@@ -236,9 +236,15 @@ def resolve_live_trades() -> int:
         _db.session.commit()
 
     # Only try to settle trades from last 48h — older ones just spam 500s.
+    # CRITICAL: skip already-resolved trades. Without this filter the resolver
+    # re-fetches Kalshi settlement/resolution for every trade in the window on
+    # every 60s cycle (~50-100 wasted API calls/min), saturating the rate limit
+    # and starving the scheduler's snapshot fetches (the 2026-07-07 zero-trades
+    # spiral). Once a trade is resolved its settlement is final.
     cutoff = now_utc - timedelta(hours=48)
     trades = (
         LiveTrade.query.filter(
+            LiveTrade.resolved.is_(False),
             LiveTrade.kalshi_order_id.isnot(None),
             LiveTrade.order_status != "failed",
             LiveTrade.entry_at >= cutoff,
