@@ -89,6 +89,59 @@ def _price_context_for_snapshot() -> dict:
     return out
 
 
+def _cancel_stale_resting_order(ticker: str, result, app=None) -> None:
+    """Cancel a resting GTC order whose thesis the current signal no longer supports.
+
+    A GTC bid is placed on a mispricing signal and rests until filled or expiry.
+    If the market then moves so the live model no longer backs that side (the
+    signal collapses to NO SIGNAL or flips to the other side), a still-resting bid
+    would only fill on a move against us — adverse selection. We cancel it instead
+    of waiting for expiry. Runs every poll for the active market regardless of
+    whether the current signal is actionable. Filled/partially-filled orders are
+    left untouched for the normal reconciliation path.
+    """
+    from app.models import LiveTrade, db
+    from app.kalshi_trader import cancel_order, get_order_status
+
+    existing = LiveTrade.query.filter(
+        LiveTrade.ticker == ticker,
+        LiveTrade.resolved.is_(False),
+        LiveTrade.order_status == "resting",
+        LiveTrade.kalshi_order_id.isnot(None),
+    ).first()
+    if existing is None:
+        return
+
+    supports = (
+        (result.signal == "PAPER BUY YES" and str(existing.side).upper() == "YES")
+        or (result.signal == "PAPER BUY NO" and str(existing.side).upper() == "NO")
+    )
+    if supports:
+        return  # current signal still backs this side — keep waiting for the fill
+
+    status = get_order_status(existing.kalshi_order_id)
+    if status is None:
+        return  # can't verify status — don't cancel blindly (it may have filled)
+    if int(status.get("fill_count", 0) or 0) >= 1:
+        return  # (partially) filled — leave for the normal reconciliation path
+
+    cancel_order(existing.kalshi_order_id)
+    # Mark "unfilled" (not "cancelled") so the resting-aware position check treats
+    # it as no-position and allows a fresh evaluation, rather than a stale block.
+    existing.order_status = "unfilled"
+    existing.contracts = 0
+    existing.error_detail = f"cancelled stale resting order (signal now {result.signal})"
+    set_setting(f"live_resting_order_{ticker}", "")
+    db.session.commit()
+    logger.info(
+        "Cancelled stale resting %s order %s on %s — current signal %s no longer supports it",
+        existing.side,
+        existing.kalshi_order_id,
+        ticker,
+        result.signal,
+    )
+
+
 def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
     """Place a real Kalshi order mirroring the signal. All safety checks run first."""
     from datetime import datetime, timezone
@@ -546,6 +599,12 @@ def poll_and_signal() -> None:
             live_keys_ok = kalshi_configured()
             live_enabled = live_setting_on and live_keys_ok
             actionable = result.signal in ("PAPER BUY YES", "PAPER BUY NO")
+
+            # Adverse-selection hygiene: cancel any resting GTC order on this ticker
+            # that the current signal no longer supports, before (maybe) placing a
+            # new one. Runs regardless of whether the current signal is actionable.
+            if live_enabled:
+                _cancel_stale_resting_order(ticker=str(snapshot["market_ticker"]), result=result)
 
             # Live takes precedence: when live is on + keys configured, only place real orders.
             if live_enabled and actionable:
