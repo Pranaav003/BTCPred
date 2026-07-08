@@ -142,6 +142,34 @@ def _cancel_stale_resting_order(ticker: str, result, app=None) -> None:
     )
 
 
+def _aggressive_entry_price(side, p_market, quote, max_entry_yes, max_entry_no, buffer_cents=1):
+    """Price a marketable order that CROSSES the live orderbook ask for an
+    immediate fill, instead of resting a passive limit at the stale candle mid.
+
+    Immediate fills raise the fill rate (~65% resting -> ~all) and remove the
+    adverse selection of passive limits (which only fill when the market moves
+    against us — the gap between paper 78% WR and live 59% WR). Backtest: crossing
+    stays +EV up to ~11c/contract; observed real crossing cost is ~1-3c.
+
+    Returns (entry_price, price_cents), or None when the live ask exceeds the
+    max-entry sanity cap (never chase past the cap). Falls back to the candle mid
+    when no live quote is available.
+    """
+    if side == "yes":
+        mid = float(p_market)
+        ask = quote.get("yes_ask") if quote else None
+        cap = float(max_entry_yes)
+    else:
+        mid = 1.0 - float(p_market)
+        ask = quote.get("no_ask") if quote else None
+        cap = float(max_entry_no)
+    base = float(ask) if ask is not None else mid
+    if base > cap:
+        return None
+    price_cents = max(1, min(99, int(round(base * 100)) + int(buffer_cents)))
+    return base, price_cents
+
+
 def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
     """Place a real Kalshi order mirroring the signal. All safety checks run first."""
     from datetime import datetime, timezone
@@ -297,12 +325,23 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
             live_size = float(get_setting("live_trade_size", "5.0") or 5.0)
             max_risk = available * 0.10
 
-            if result.signal == "PAPER BUY YES":
-                side = "yes"
-                entry_price = float(result.p_market)
-            else:
-                side = "no"
-                entry_price = 1.0 - float(result.p_market)
+            side = "yes" if result.signal == "PAPER BUY YES" else "no"
+
+            # Cross the LIVE orderbook ask for an immediate fill, rather than
+            # resting a passive limit at the stale candle mid (which filled ~65%
+            # and adversely selected). Sanity-capped by max-entry so we never chase.
+            quote = get_market_prices(ticker)
+            max_entry_yes = float(get_setting("max_entry_price_yes", "0.65") or 0.65)
+            max_entry_no = float(get_setting("max_entry_price_no", "0.80") or 0.80)
+            priced = _aggressive_entry_price(side, result.p_market, quote, max_entry_yes, max_entry_no)
+            if priced is None:
+                logger.info(
+                    "Live trade skipped: live %s ask exceeds max-entry cap (quote=%s)",
+                    side.upper(),
+                    quote,
+                )
+                return
+            entry_price, price_cents = priced
 
             if entry_price < float(MIN_ENTRY_PRICE):
                 logger.warning(
@@ -374,17 +413,8 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 )
                 return
 
-            # --- Side-aware aggressive offset ---
-            # YES books are liquid at 65-80¢; +2¢ crosses the spread.
-            # NO books at 20-40¢ are very thin; need +5¢ to find liquidity.
-            if side == "yes":
-                raw_cents = round(result.p_market * 100)
-                aggressive_offset = 2
-                price_cents = max(1, min(99, raw_cents + aggressive_offset))
-            else:
-                raw_cents = round((1.0 - result.p_market) * 100)
-                aggressive_offset = 5 if raw_cents <= 40 else 3
-                price_cents = max(1, min(99, raw_cents + aggressive_offset))
+            # price_cents (crossing the live ask) was computed above by
+            # _aggressive_entry_price; entry_price is the expected fill price.
             actual_cost = contracts * entry_price
 
             # Calculate expiration time (60s before market close)
@@ -403,12 +433,12 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                 return
             
             logger.info(
-                "Placing live GTC order: %s %s contracts on %s at %sc (+%dc offset, $%.2f risk, balance $%.2f, expires in %ss)",
+                "Placing live GTC order (crossing ask): %s %s contracts on %s at %sc "
+                "($%.2f risk, balance $%.2f, expires in %ss)",
                 side.upper(),
                 contracts,
                 ticker,
                 price_cents,
-                aggressive_offset,
                 actual_cost,
                 available,
                 time_until_expiration,
