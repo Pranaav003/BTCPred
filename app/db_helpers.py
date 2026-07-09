@@ -263,9 +263,11 @@ def seed_default_settings() -> None:
         "dynamic_sizing_enabled": "false",
         "risk_profile": "moderate",
         "signal_mode": "ensemble",
-        "mispricing_threshold": "0.10",
-        "max_entry_price_yes": "0.80",
+        "mispricing_threshold": "0.25",
+        "max_entry_price_yes": "0.65",
         "max_entry_price_no": "0.80",
+        "no_max_p_raw": "0.20",
+        "live_max_contracts": "",
         "min_expected_profit": "0.10",
         "max_reversal_risk": "0.65",
         "max_daily_loss": "50.0",
@@ -282,13 +284,13 @@ def seed_default_settings() -> None:
         if get_setting(key) is None:
             set_setting(key, value)
 
-    # Correct mispricing threshold if set to an unreasonably high value
-    # that would prevent mispricing signals from ever firing.
+    # Only correct a truly absurd threshold that would never fire (>0.60).
+    # 0.25 is the backtest-validated production value and MUST survive restart.
     current_threshold = get_setting("mispricing_threshold")
-    if current_threshold and float(current_threshold) > 0.20:
-        set_setting("mispricing_threshold", "0.10")
+    if current_threshold and float(current_threshold) > 0.60:
+        set_setting("mispricing_threshold", "0.25")
         logger.info(
-            "Corrected mispricing_threshold from %s to 0.10 (above 20%% rarely fires)", current_threshold
+            "Corrected absurd mispricing_threshold from %s to 0.25", current_threshold
         )
 
     # Correct max_daily_loss if set above starting balance — losing more
