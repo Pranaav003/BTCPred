@@ -108,7 +108,7 @@ def main() -> int:
         ev = 0.0
         print("replay: n=0 (no qualifying trades in held-out window)")
 
-    brier_ok = old_brier is None or new_brier < old_brier
+    brier_ok = (old_brier is not None) and (new_brier < old_brier)
     ev_ok = n > 0 and ev > 0
     if brier_ok and ev_ok:
         print("GATE: PASS")
