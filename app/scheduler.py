@@ -170,6 +170,21 @@ def _aggressive_entry_price(side, p_market, quote, max_entry_yes, max_entry_no, 
     return base, price_cents
 
 
+def _apply_contract_cap(contracts: int, live_max_contracts) -> int:
+    """Clamp contract count to live_max_contracts when it is a positive int.
+
+    Empty string, None, non-numeric, or <=0 all mean "no cap". Used for the
+    interim tiny-fixed-size posture during model retraining.
+    """
+    try:
+        cap = int(str(live_max_contracts).strip())
+    except (TypeError, ValueError):
+        return contracts
+    if cap <= 0:
+        return contracts
+    return min(contracts, cap)
+
+
 def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
     """Place a real Kalshi order mirroring the signal. All safety checks run first."""
     from datetime import datetime, timezone
@@ -412,6 +427,15 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
                     entry_price * 100,
                 )
                 return
+
+            live_max_contracts = get_setting("live_max_contracts", "")
+            capped = _apply_contract_cap(contracts, live_max_contracts)
+            if capped != contracts:
+                logger.info(
+                    "Contract cap: %s -> %s (live_max_contracts=%s)",
+                    contracts, capped, live_max_contracts,
+                )
+                contracts = capped
 
             # price_cents (crossing the live ask) was computed above by
             # _aggressive_entry_price; entry_price is the expected fill price.

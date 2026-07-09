@@ -54,6 +54,12 @@ VALIDATED_SETTINGS: dict[str, str] = {
 
     # Signal mode: ensure ensemble is active (it combines agreement + mispricing)
     "signal_mode": "ensemble",
+
+    # NO-side calibration gate: model's NO edge is only reliable below this p_raw.
+    "no_max_p_raw": "0.20",
+
+    # Interim safety: hard 1-contract cap during model retraining (Phase 2 clears this).
+    "live_max_contracts": "1",
 }
 
 
