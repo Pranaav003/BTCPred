@@ -335,6 +335,8 @@ class TestEvaluateMispricingSignal:
 
     def test_bearish_mispricing(self):
         """Market significantly above model -> PAPER BUY NO."""
+        # no_max_p_raw=1.0: disables the p_raw gate so the test exercises pure
+        # mispricing logic independent of the calibration cap (p_raw=0.50 >= 0.20).
         result = evaluate_mispricing_signal(
             p_market=0.80,
             p_raw=0.50,
@@ -343,6 +345,7 @@ class TestEvaluateMispricingSignal:
             min_seconds=60,
             max_seconds=180,
             mispricing_threshold=0.10,
+            no_max_p_raw=1.0,
         )
         assert result.signal == "PAPER BUY NO"
         assert result.agreement_region == "model_bearish"
@@ -505,6 +508,8 @@ class TestEvaluateEnsembleSignal:
         """Bearish mispricing -> PAPER BUY NO."""
         # p_market=0.80, p_raw=0.45, gap = 0.45 - 0.80 = -0.35
         # -gap = 0.35 >= 0.20 threshold, p_raw=0.45 < 0.50
+        # no_max_p_raw=1.0: disables the p_raw gate so the test exercises pure
+        # bearish mispricing logic independent of the calibration cap (p_raw=0.45 >= 0.20).
         result = evaluate_ensemble_signal(
             p_market=0.80,
             p_raw=0.45,
@@ -514,6 +519,7 @@ class TestEvaluateEnsembleSignal:
             mispricing_threshold=0.20,
             min_seconds=60,
             max_seconds=180,
+            no_max_p_raw=1.0,
         )
         assert result.signal == "PAPER BUY NO"
         assert result.agreement_region == "model_bearish"

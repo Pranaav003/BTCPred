@@ -400,6 +400,7 @@ def evaluate_mispricing_signal(
     early_entry_cutoff: float | None = None,
     max_entry_price_yes: float = 1.0,
     max_entry_price_no: float = 1.0,
+    no_max_p_raw: float = 0.20,
 ) -> SignalResult:
     """Evaluate model-vs-market gap for relative mispricing opportunities."""
     confidence = abs(float(p_market) - 0.5) + abs(float(p_raw) - 0.5)
@@ -506,6 +507,14 @@ def evaluate_mispricing_signal(
             )
             result.entry_filtered = True
     elif result.signal == "PAPER BUY NO":
+        if float(p_raw) >= float(no_max_p_raw):
+            result.signal = "NO SIGNAL"
+            result.reason = (
+                f"NO blocked: p_raw {float(p_raw):.1%} >= no_max_p_raw "
+                f"{float(no_max_p_raw):.1%} (edge only reliable below this)"
+            )
+            result.entry_filtered = True
+            return result
         no_price = 1.0 - float(p_market)
         if no_price < float(MIN_ENTRY_PRICE):
             logger.info(
@@ -551,6 +560,7 @@ def evaluate_ensemble_signal(
     early_entry_max: int = 600,
     early_entry_cutoff: float = 0.80,
     volatility_guard_active: bool = False,
+    no_max_p_raw: float = 0.20,
 ) -> SignalResult:
     """Ensemble vote: agreement or mispricing, with entry-price filters."""
     in_normal = int(min_seconds) <= int(seconds_to_close) <= int(max_seconds)
@@ -586,6 +596,7 @@ def evaluate_ensemble_signal(
 
     mispricing_bullish = gap >= thresh and float(p_raw) >= 0.50
     mispricing_bearish = (-gap) >= thresh and float(p_raw) < 0.50
+    no_praw_ok = float(p_raw) < float(no_max_p_raw)
     yes_entry_ok = float(MIN_ENTRY_PRICE) <= float(p_market) <= float(max_entry_yes)
     no_price_pm = 1.0 - float(p_market)
     no_entry_ok = float(MIN_ENTRY_PRICE) <= no_price_pm <= float(max_entry_no)
@@ -608,7 +619,7 @@ def evaluate_ensemble_signal(
         else:
             region = "model_bullish"
             signal_type = "mispricing"
-    elif mispricing_bearish and no_entry_ok:
+    elif mispricing_bearish and no_entry_ok and no_praw_ok:
         proposed_signal = "PAPER BUY NO"
         region = "model_bearish"
         signal_type = "mispricing"
@@ -669,6 +680,11 @@ def evaluate_ensemble_signal(
                 )
             elif np > float(max_entry_no):
                 parts.append(f"NO entry {np:.1%} > max {float(max_entry_no):.1%}")
+        if mispricing_bearish and no_entry_ok and not no_praw_ok:
+            parts.append(
+                f"NO blocked: model p_raw {float(p_raw):.1%} >= no_max_p_raw "
+                f"{float(no_max_p_raw):.1%} (edge only reliable below this)"
+            )
         result = no_signal_result(
             p_market,
             p_raw,
@@ -791,6 +807,7 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
     mispricing_threshold = float(get_setting("mispricing_threshold", str(MISPRICING_THRESHOLD)) or MISPRICING_THRESHOLD)
     max_entry_yes = float(get_setting("max_entry_price_yes", "0.65") or 0.65)
     max_entry_no = float(get_setting("max_entry_price_no", "0.80") or 0.80)
+    no_max_p_raw = float(get_setting("no_max_p_raw", "0.20") or 0.20)
     max_reversal = float(get_setting("max_reversal_risk", "0.65") or 0.65)
     high_conviction_override = float(get_setting("high_conviction_volatility_override", "0.80") or 0.80)
 
@@ -871,6 +888,7 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
             early_entry_cutoff=early_entry_cutoff,
             max_entry_price_yes=max_entry_yes,
             max_entry_price_no=max_entry_no,
+            no_max_p_raw=no_max_p_raw,
         )
     elif signal_mode == "ensemble":
         result = evaluate_ensemble_signal(
@@ -889,6 +907,7 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
             early_entry_max=int(profile.get("early_entry_max_seconds") or 600),
             early_entry_cutoff=float(profile.get("early_entry_cutoff") or 0.80),
             volatility_guard_active=volatility_guard_active,
+            no_max_p_raw=no_max_p_raw,
         )
     else:
         region = determine_agreement_region(p_market, p_raw, yes_cutoff, no_cutoff)
