@@ -68,7 +68,7 @@ def main() -> int:
     df = df.dropna(subset=["close_ts", "price_now", "final_outcome_yes"])
 
     # Market-level temporal split: most-recent 20% of markets held out.
-    order = df.groupby("market_ticker")["close_ts"].min().sort_values().index.tolist()
+    order = df.groupby("market_ticker")["close_ts"].max().sort_values().index.tolist()
     n_test = max(1, int(len(order) * TEST_SIZE))
     test_tickers = set(order[len(order) - n_test:])
     test = df[df["market_ticker"].isin(test_tickers)].copy()
@@ -77,6 +77,7 @@ def main() -> int:
     new_bundle = joblib.load(args.new)
     test["p_new"] = predict(new_bundle, test)
     y = test["final_outcome_yes"].astype(int).values
+    assert set(np.unique(y)).issubset({0, 1}), f"final_outcome_yes has non-binary values: {set(np.unique(y))}"
     new_brier = brier_score_loss(y, test["p_new"].values)
 
     old_brier = None

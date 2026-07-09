@@ -918,6 +918,8 @@ def evaluate_live_signal(feature_dict: dict[str, Any]) -> SignalResult | None:
             p_raw,
             region,
         )
+        # NOTE: no_max_p_raw NO-gate is NOT applied on the agreement path;
+        # production locks signal_mode="ensemble", so this path is inactive there.
         result = evaluate_signal(
             p_market=p_market,
             p_raw=p_raw,

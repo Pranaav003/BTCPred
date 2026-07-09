@@ -5,6 +5,17 @@ import os
 import sys
 import types
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _restore_sys_modules():
+    import sys
+    saved = dict(sys.modules)
+    yield
+    sys.modules.clear()
+    sys.modules.update(saved)
+
 
 def _load_db_helpers_with_fake_store():
     """Load app.db_helpers with get_setting/set_setting backed by an in-memory dict."""

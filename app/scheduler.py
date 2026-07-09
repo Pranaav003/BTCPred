@@ -182,7 +182,7 @@ def _apply_contract_cap(contracts: int, live_max_contracts) -> int:
         return contracts
     if cap <= 0:
         return contracts
-    return min(int(contracts), cap)
+    return min(contracts, cap)
 
 
 def _execute_live_trade(result, snapshot, saved_signal, app) -> None:

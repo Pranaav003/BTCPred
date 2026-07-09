@@ -66,3 +66,12 @@ def test_mispricing_blocks_no_when_praw_above_cap():
         max_entry_price_yes=0.65, max_entry_price_no=0.80, no_max_p_raw=0.20,
     )
     assert result.signal == "NO SIGNAL"
+
+
+def test_mispricing_allows_no_when_praw_below_cap():
+    result = SE.evaluate_mispricing_signal(
+        p_market=0.62, p_raw=0.15, seconds_to_close=100, entry_bucket=60,
+        min_seconds=60, max_seconds=120, mispricing_threshold=0.25,
+        max_entry_price_yes=0.65, max_entry_price_no=0.80, no_max_p_raw=0.20,
+    )
+    assert result.signal == "PAPER BUY NO"
