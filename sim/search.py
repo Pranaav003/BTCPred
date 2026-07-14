@@ -51,28 +51,36 @@ def objective_score(metrics: dict) -> float:
     return metrics.get("sharpe", 0.0)
 
 
-def passes_gates(trades, metrics, wf_positive_folds, mc, gates: Gates) -> bool:
+def passes_gates(trades, metrics, wf_positive_folds, wf_final_positive, mc, gates: Gates) -> bool:
     return (metrics["n_trades"] >= gates.min_trades
             and metrics["max_drawdown"] <= gates.max_drawdown
             and mc["p_value"] < gates.mc_pvalue
-            and wf_positive_folds >= gates.min_folds_positive)
+            and wf_positive_folds >= gates.min_folds_positive
+            and wf_final_positive)
 
 
 def run_search(space, train, val, test, cost_model, gates: Gates,
                n_folds: int = 4) -> list:
     board = []
     for cfg in build_grid(space):
-        tr_trades, tr_metrics = evaluate_config(cfg, train, cost_model)
-        _, val_metrics = evaluate_config(cfg, val, cost_model)
+        _, tr_metrics = evaluate_config(cfg, train, cost_model)
+        val_trades, val_metrics = evaluate_config(cfg, val, cost_model)
         test_trades, test_metrics = evaluate_config(cfg, test, cost_model)
 
+        folds = walk_forward(train, n_folds=n_folds)
         wf_pos = 0
-        for f_train, f_test in walk_forward(train, n_folds=n_folds):
+        wf_final_positive = False
+        for i, (f_train, f_test) in enumerate(folds):
             _, fm = evaluate_config(cfg, f_test, cost_model)
             if fm["total_pnl"] > 0:
                 wf_pos += 1
-        mc = monte_carlo_pvalue(test_trades)
-        passed = passes_gates(test_trades, test_metrics, wf_pos, mc, gates)
+            if i == len(folds) - 1:
+                wf_final_positive = fm["total_pnl"] > 0
+
+        # Gate on the VALIDATION partition; the TEST partition stays untouched by
+        # selection and is reported only as the honest out-of-sample estimate.
+        mc = monte_carlo_pvalue(val_trades)
+        passed = passes_gates(val_trades, val_metrics, wf_pos, wf_final_positive, mc, gates)
         board.append({
             "config": cfg,
             "train_metrics": tr_metrics,
@@ -80,10 +88,10 @@ def run_search(space, train, val, test, cost_model, gates: Gates,
             "test_metrics": test_metrics,
             "mc_pvalue": mc["p_value"],
             "wf_positive_folds": wf_pos,
+            "wf_final_positive": wf_final_positive,
             "passed": passed,
-            "score": objective_score(test_metrics),
+            "score": objective_score(val_metrics),
         })
-    # rank: passed first, then score, profit-factor tiebreak
     board.sort(key=lambda r: (r["passed"], r["score"],
-                              r["test_metrics"]["profit_factor"]), reverse=True)
+                              r["val_metrics"]["profit_factor"]), reverse=True)
     return board

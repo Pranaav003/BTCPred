@@ -39,22 +39,18 @@ def test_objective_score_is_sharpe():
 
 def test_passes_gates_rejects_thin_sample():
     gates = Gates(min_trades=30)
-    assert passes_gates([], {"n_trades": 5, "max_drawdown": 0.0}, 4,
+    assert passes_gates([], {"n_trades": 5, "max_drawdown": 0.0}, 4, True,
                         {"p_value": 0.01}, gates) is False
 
 
 def test_passes_gates_rejects_each_condition():
     gates = Gates()
     good = {"n_trades": 40, "max_drawdown": 10.0}
-    # drawdown too high
-    assert passes_gates([], {"n_trades": 40, "max_drawdown": 999.0}, 4,
-                        {"p_value": 0.01}, gates) is False
-    # mc p_value too high
-    assert passes_gates([], good, 4, {"p_value": 0.5}, gates) is False
-    # insufficient walk-forward positive folds
-    assert passes_gates([], good, 1, {"p_value": 0.01}, gates) is False
-    # all four conditions satisfied
-    assert passes_gates([], good, 4, {"p_value": 0.01}, gates) is True
+    assert passes_gates([], {"n_trades": 40, "max_drawdown": 999.0}, 4, True, {"p_value": 0.01}, gates) is False
+    assert passes_gates([], good, 4, True, {"p_value": 0.5}, gates) is False
+    assert passes_gates([], good, 1, True, {"p_value": 0.01}, gates) is False
+    assert passes_gates([], good, 4, False, {"p_value": 0.01}, gates) is False  # final fold negative
+    assert passes_gates([], good, 4, True, {"p_value": 0.01}, gates) is True
 
 
 def test_run_search_ranks_and_gates():
@@ -68,3 +64,4 @@ def test_run_search_ranks_and_gates():
     assert "config" in row and "score" in row and "passed" in row
     assert row["test_metrics"]["n_trades"] > 0
     assert row["passed"] is True
+    assert row["wf_final_positive"] is True
