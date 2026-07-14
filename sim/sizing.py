@@ -21,6 +21,7 @@ def fractional_kelly_size(edge: float, win_prob: float, entry_cost: float,
     kelly = (b * p - (1.0 - p)) / b
     if kelly <= 0:
         return 0.0
+    # base_size scales the Kelly fraction (it is a size unit, not bankroll); max_size caps the result.
     stake = cfg["base_size"] * cfg["kelly_fraction"] * kelly * 10.0
     return min(stake, cfg["max_size"])
 
@@ -29,10 +30,10 @@ def payoff_aware_size(edge: float, win_prob: float, entry_cost: float,
                       cfg: dict) -> float:
     avg_win = 1.0 - entry_cost
     avg_loss = entry_cost
-    if win_prob <= breakeven_win_rate(avg_win, avg_loss):
+    be = breakeven_win_rate(avg_win, avg_loss)
+    if win_prob <= be:
         return 0.0
-    # scale base by how far above breakeven, capped
-    margin = win_prob - breakeven_win_rate(avg_win, avg_loss)
+    margin = win_prob - be
     return min(cfg["base_size"] * (1.0 + margin * 5.0), cfg["max_size"])
 
 

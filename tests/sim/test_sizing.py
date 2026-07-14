@@ -17,7 +17,7 @@ def test_kelly_scales_with_edge_and_caps():
     # win_prob 0.7, entry_cost 0.5 -> payoff b = (1-0.5)/0.5 = 1.0
     # kelly f = (b*p - (1-p))/b = (0.7 - 0.3)/1 = 0.4 ; half-kelly -> 0.2 of base*...
     size = fractional_kelly_size(0.2, 0.7, 0.5, _cfg())
-    assert size > 0
+    assert size == pytest.approx(10.0)
     # never exceeds max_size
     assert fractional_kelly_size(0.9, 0.99, 0.01, _cfg()) <= 20.0
 
