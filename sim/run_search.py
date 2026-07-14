@@ -24,6 +24,7 @@ DEFAULT_SPACE = {
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
+    # Default is the per-poll log (multi-poll paths) so exit strategies can be backtested.
     parser.add_argument("--data", default="live_training_data_20260625.csv")
     parser.add_argument("--out", default="sim_results")
     args = parser.parse_args(argv)

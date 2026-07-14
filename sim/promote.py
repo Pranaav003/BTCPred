@@ -19,7 +19,7 @@ def config_to_settings(cfg: dict) -> dict:
     return out
 
 
-def promotion_candidate(board: list):
+def promotion_candidate(board: list) -> dict | None:
     passing = [r for r in board if r.get("passed")]
     if not passing:
         return None

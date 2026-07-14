@@ -29,3 +29,7 @@ def test_promotion_candidate_prefers_passing():
 
 def test_promotion_candidate_none_when_no_pass():
     assert promotion_candidate([{"passed": False, "score": 1.0}]) is None
+
+
+def test_promotion_candidate_empty_board():
+    assert promotion_candidate([]) is None
