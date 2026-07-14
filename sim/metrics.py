@@ -41,6 +41,8 @@ def compute_metrics(pnls: list, contracts: list) -> dict:
         max_dd = max(max_dd, peak - equity)
 
     downside = [p for p in pnls if p < 0]
+    std_all = _std(pnls)
+    std_down = _std(downside)
     total_contracts = sum(contracts) if contracts else 0
     return {
         "n_trades": n,
@@ -49,8 +51,8 @@ def compute_metrics(pnls: list, contracts: list) -> dict:
         "avg_win": (gross_win / len(wins)) if wins else 0.0,
         "avg_loss": (sum(losses) / len(losses)) if losses else 0.0,
         "profit_factor": (gross_win / gross_loss) if gross_loss > 0 else 0.0,
-        "sharpe": (total / n) / _std(pnls) if _std(pnls) > 0 else 0.0,
-        "sortino": (total / n) / _std(downside) if _std(downside) > 0 else 0.0,
+        "sharpe": (total / n) / std_all if std_all > 0 else 0.0,
+        "sortino": (total / n) / std_down if std_down > 0 else 0.0,
         "max_drawdown": max_dd,
         "ev_per_contract": (total / total_contracts) if total_contracts else 0.0,
     }

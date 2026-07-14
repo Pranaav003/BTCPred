@@ -1,5 +1,5 @@
 # tests/sim/test_metrics.py
-import math
+import statistics
 import pytest
 from sim.metrics import breakeven_win_rate, compute_metrics, calibration
 
@@ -36,3 +36,11 @@ def test_calibration_brier():
     assert calibration([1.0, 0.0], [1, 0])["brier"] == pytest.approx(0.0)
     # coin-flip on a certain event
     assert calibration([0.5, 0.5], [1, 0])["brier"] == pytest.approx(0.25)
+
+
+def test_sharpe_and_sortino_match_independent_computation():
+    pnls = [5.0, -1.0, -2.0]
+    m = compute_metrics(pnls, [1, 1, 1])
+    mean = statistics.mean(pnls)
+    assert m["sharpe"] == pytest.approx(mean / statistics.stdev(pnls))
+    assert m["sortino"] == pytest.approx(mean / statistics.stdev([-1.0, -2.0]))
