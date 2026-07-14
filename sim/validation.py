@@ -27,9 +27,11 @@ def train_val_test_split(paths, fracs=(0.6, 0.2, 0.2), embargo_s: int = 900):
     if train:
         mt = max(p.close_ts for p in train)
         val = [p for p in val if p.close_ts >= mt + embargo_s]
-    if val:
-        mv = max(p.close_ts for p in val)
-        test = [p for p in test if p.close_ts >= mv + embargo_s]
+    # embargo test against the latest of (val if non-empty else train)
+    ref = val if val else train
+    if ref:
+        mr = max(p.close_ts for p in ref)
+        test = [p for p in test if p.close_ts >= mr + embargo_s]
     return train, val, test
 
 
@@ -37,6 +39,8 @@ def walk_forward(paths, n_folds: int = 4):
     ordered = _sorted(paths)
     n = len(ordered)
     fold = n // (n_folds + 1)
+    if fold == 0:
+        raise ValueError(f"n_folds={n_folds} too large for n={n} markets")
     out = []
     for k in range(1, n_folds + 1):
         train = ordered[: fold * k]
