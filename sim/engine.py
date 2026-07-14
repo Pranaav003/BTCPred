@@ -19,7 +19,7 @@ class Trade:
 
 
 def simulate(paths, signal_fn, exit_fn, sizing_fn, cfg: dict,
-             cost_model: CostModel) -> list:
+             cost_model: CostModel) -> list[Trade]:
     trades: list = []
     for path in paths:
         decision = signal_fn(path, cfg)

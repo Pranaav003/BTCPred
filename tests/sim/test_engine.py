@@ -52,6 +52,14 @@ def test_losing_trade_full_loss():
     assert t.pnl == pytest.approx(-0.63)  # 1 contract * -entry_cost
 
 
+def test_zero_size_skips_trade():
+    # sizer returns 0.0 stake -> contracts 0 -> no trade recorded
+    path = MarketPath("A", 300, 1000, 0, [Poll(200, 0.40, 0.10, {})])
+    trades = simulate([path], ensemble_signal, hold_to_resolution,
+                      lambda edge, wp, ec, cfg: 0.0, _cfg(), CostModel())
+    assert trades == []
+
+
 def test_stop_loss_caps_loss_smaller_than_full():
     # NO entered mark 0.60; price_now rises 0.40->0.55 => NO mark 0.60->0.45,
     # gain -0.15 <= -sl(0.10) -> exit early; resolves YES so hold would be full loss.
