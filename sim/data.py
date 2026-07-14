@@ -27,12 +27,13 @@ class MarketPath:
     bucket: int
     close_ts: int
     final_outcome_yes: int
-    polls: list  # list[Poll], ordered by DESCENDING seconds_to_close
+    polls: list[Poll]  # ordered by DESCENDING seconds_to_close
 
 
-def load_paths(csv_path: str, min_polls: int = 1) -> list:
+def load_paths(csv_path: str, min_polls: int = 1) -> list[MarketPath]:
     df = pd.read_csv(csv_path)
-    feature_cols = [c for c in df.columns if c not in _META_COLS]
+    feature_cols = [c for c in df.columns if c not in _META_COLS
+                    and pd.api.types.is_numeric_dtype(df[c])]
     paths: list = []
     for (ticker, bucket), grp in df.groupby(["market_ticker", "entry_bucket"]):
         grp = grp.sort_values("seconds_to_close", ascending=False)
