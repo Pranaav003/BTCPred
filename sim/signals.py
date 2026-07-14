@@ -46,9 +46,11 @@ def mean_reversion_signal(path, cfg: dict):
             continue
         r5 = poll.features.get("return_5m", 0.0)
         p_market = poll.price_now
-        if r5 >= cfg["mr_return_5m"] and p_market >= cfg["mr_price_floor"]:
+        no_ok = cfg["min_entry_price"] <= (1.0 - p_market) <= cfg["max_entry_no"]
+        yes_ok = cfg["min_entry_price"] <= p_market <= cfg["max_entry_yes"]
+        if r5 >= cfg["mr_return_5m"] and p_market >= cfg["mr_price_floor"] and no_ok:
             return EntryDecision(idx, "no")
-        if r5 <= -cfg["mr_return_5m"] and p_market <= (1.0 - cfg["mr_price_floor"]):
+        if r5 <= -cfg["mr_return_5m"] and p_market <= (1.0 - cfg["mr_price_floor"]) and yes_ok:
             return EntryDecision(idx, "yes")
     return None
 

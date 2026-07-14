@@ -24,7 +24,7 @@ def test_ensemble_bearish_gap_triggers_no():
 
 def test_ensemble_no_blocked_when_praw_too_high():
     path = MarketPath("A", 300, 1000, 0, [
-        Poll(200, 0.70, 0.35, {}),  # bearish gap 0.35 but p_raw 0.35 >= no_max_p_raw
+        Poll(200, 0.70, 0.45, {}),  # bearish gap 0.25, p_raw<0.50, but 0.45 >= no_max_p_raw(0.20)
     ])
     assert ensemble_signal(path, _cfg()) is None
 
@@ -54,6 +54,19 @@ def test_mean_reversion_fades_big_up_move():
     ])
     d = mean_reversion_signal(path, _cfg())
     assert d.side == "no" and d.entry_idx == 0
+
+
+def test_mean_reversion_respects_entry_bounds():
+    # up-move but p_market 0.98 -> NO mark 0.02 < min_entry_price 0.05 -> blocked
+    path = MarketPath("A", 300, 1000, 0, [Poll(200, 0.98, 0.50, {"return_5m": 55.0})])
+    assert mean_reversion_signal(path, _cfg()) is None
+
+
+def test_mean_reversion_fades_big_down_move():
+    # large negative return_5m + cheap YES -> fade with YES
+    path = MarketPath("A", 300, 1000, 1, [Poll(200, 0.30, 0.50, {"return_5m": -55.0})])
+    d = mean_reversion_signal(path, _cfg())
+    assert d.side == "yes" and d.entry_idx == 0
 
 
 def test_registry():
