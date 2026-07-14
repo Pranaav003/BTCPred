@@ -18,6 +18,8 @@ class CostModel:
 
 def mark_price(side: str, price_now: float) -> float:
     """Current contract mark for the given side (0-1)."""
+    if side not in ("yes", "no"):
+        raise ValueError(f"side must be 'yes' or 'no', got {side!r}")
     return price_now if side == "yes" else 1.0 - price_now
 
 

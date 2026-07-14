@@ -3,6 +3,11 @@ import pytest
 from sim.costs import CostModel, mark_price, entry_cost, exit_proceeds, fee
 
 
+def test_invalid_side_raises():
+    with pytest.raises(ValueError):
+        mark_price("buy", 0.5)
+
+
 def test_mark_price_sides():
     assert mark_price("yes", 0.40) == pytest.approx(0.40)
     assert mark_price("no", 0.40) == pytest.approx(0.60)
@@ -25,9 +30,11 @@ def test_exit_proceeds_subtracts_spread_and_floors_at_zero():
     assert exit_proceeds("yes", 0.50, cfg) == pytest.approx(0.48)
     assert exit_proceeds("no", 0.90, cfg) == pytest.approx(0.08)  # mark .10 - .02
     assert exit_proceeds("yes", 0.01, cfg) == pytest.approx(0.0)  # floored
+    assert exit_proceeds("no", 0.99, cfg) == pytest.approx(0.0)  # NO mark .01 - .02 floored
 
 
 def test_fee_only_on_gains():
     cfg = CostModel()
     assert fee(10.0, cfg) == pytest.approx(0.10)
     assert fee(-10.0, cfg) == pytest.approx(0.0)
+    assert fee(0.0, cfg) == pytest.approx(0.0)
