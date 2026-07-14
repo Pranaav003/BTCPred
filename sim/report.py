@@ -46,9 +46,9 @@ def write_report(board: list, out_dir: str) -> dict:
             "## Top passing strategy",
             f"- signal=`{cfg.get('signal')}` exit=`{cfg.get('exit')}` "
             f"sizing=`{cfg.get('sizing')}`",
-            f"- test P&L: {tm.get('total_pnl'):.2f} | win rate: "
-            f"{tm.get('win_rate'):.1%} | profit factor: {tm.get('profit_factor'):.2f}",
-            f"- max drawdown: {tm.get('max_drawdown'):.2f} | "
+            f"- test P&L: {tm.get('total_pnl', 0.0):.2f} | win rate: "
+            f"{tm.get('win_rate', 0.0):.1%} | profit factor: {tm.get('profit_factor', 0.0):.2f}",
+            f"- max drawdown: {tm.get('max_drawdown', 0.0):.2f} | "
             f"MC p-value: {top['mc_pvalue']:.3f} | "
             f"walk-forward positive folds: {top['wf_positive_folds']}",
         ]
