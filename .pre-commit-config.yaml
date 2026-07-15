@@ -1,0 +1,11 @@
+# .pre-commit-config.yaml
+# Install once with: .venv/bin/pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: quality-gate
+        name: quality gate (tests + coverage + ruff + mypy ratchet)
+        entry: .venv/bin/python scripts/check_quality.py --check-only
+        language: system
+        pass_filenames: false
+        always_run: true
