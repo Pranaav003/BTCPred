@@ -1,0 +1,15 @@
+.control-page { max-width: 760px; margin: 0 auto; padding: 24px; }
+.control-head { display: flex; justify-content: space-between; align-items: center; }
+.mode-badge { padding: 6px 12px; border-radius: 999px; background: var(--success); color: #04120a; font-weight: 600; }
+.mode-badge.live { background: var(--danger); color: #1a0505; }
+.control-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-top: 16px; }
+.mode-toggle { display: flex; gap: 12px; }
+.mode-btn { flex: 1; padding: 14px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--text-primary); cursor: pointer; }
+.mode-btn.active { border-color: var(--success); }
+.mode-btn.danger { color: var(--danger); }
+.status-list { list-style: none; padding: 0; display: grid; gap: 8px; }
+.row-between { display: flex; justify-content: space-between; align-items: center; }
+.hint { color: var(--text-secondary); font-size: 13px; }
+.btn { padding: 10px 16px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text-primary); cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+label { display: block; margin: 12px 0; }
