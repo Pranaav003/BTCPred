@@ -27,6 +27,13 @@ def ratchet(passed: int, coverage_pct: float, baseline: dict,
     return True, new
 
 
+def ratchet_directional(current, baseline_val, direction: str):
+    """(ok, moved). up: ok if current>=baseline, moved=max. down: ok if current<=baseline, moved=min."""
+    if direction == "up":
+        return (current >= baseline_val, max(current, baseline_val))
+    return (current <= baseline_val, min(current, baseline_val))
+
+
 def _run_suite() -> tuple[bool, int, float]:
     """Run pytest with coverage. Returns (all_passed, passed_count, coverage_pct)."""
     proc = subprocess.run(
