@@ -76,3 +76,10 @@ def test_run_mypy_counts_found_errors(monkeypatch):
         return _sp.CompletedProcess(a, 1, stdout="app/x.py:1: error: bad\nFound 2 errors in 1 file\n", stderr="")
     monkeypatch.setattr(cq.subprocess, "run", fake_run)
     assert cq._run_mypy() == 2
+
+
+def test_run_ruff_sentinel_on_unparseable(monkeypatch):
+    # returncode != 0 but no "Found N" and no violation lines -> sentinel (regression), never 0
+    monkeypatch.setattr(cq.subprocess, "run",
+                        lambda *a, **k: _sp.CompletedProcess(a, 2, stdout="ruff: internal error\n", stderr=""))
+    assert cq._run_ruff() == cq._SENTINEL
