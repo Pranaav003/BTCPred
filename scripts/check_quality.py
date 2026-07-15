@@ -8,7 +8,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-BASELINE_PATH = Path(__file__).resolve().parent.parent / "quality_baseline.json"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+BASELINE_PATH = REPO_ROOT / "quality_baseline.json"
+VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
 
 
 def ratchet(passed: int, coverage_pct: float, baseline: dict,
@@ -28,7 +30,7 @@ def ratchet(passed: int, coverage_pct: float, baseline: dict,
 def _run_suite() -> tuple[bool, int, float]:
     """Run pytest with coverage. Returns (all_passed, passed_count, coverage_pct)."""
     proc = subprocess.run(
-        [".venv/bin/python", "-m", "pytest", "--cov=app", "--cov=sim",
+        [str(VENV_PYTHON), "-m", "pytest", "--cov=app", "--cov=sim",
          "--cov-report=term-missing", "-q"],
         capture_output=True, text=True,
     )
