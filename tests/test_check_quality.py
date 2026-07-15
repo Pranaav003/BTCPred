@@ -53,3 +53,26 @@ def test_ratchet_directional_down():
     assert cq.ratchet_directional(5, 8, "down") == (True, 5)    # fewer violations = improve
     assert cq.ratchet_directional(8, 8, "down") == (True, 8)    # equal
     assert cq.ratchet_directional(9, 8, "down") == (False, 8)   # more = regress -> hold
+
+
+import subprocess as _sp
+
+
+def test_run_ruff_counts_found_errors(monkeypatch):
+    def fake_run(*a, **k):
+        return _sp.CompletedProcess(a, 1, stdout="app/x.py:1:1: F401 unused\nFound 3 errors.\n", stderr="")
+    monkeypatch.setattr(cq.subprocess, "run", fake_run)
+    assert cq._run_ruff() == 3
+
+
+def test_run_ruff_zero_on_clean(monkeypatch):
+    monkeypatch.setattr(cq.subprocess, "run",
+                        lambda *a, **k: _sp.CompletedProcess(a, 0, stdout="All checks passed!\n", stderr=""))
+    assert cq._run_ruff() == 0
+
+
+def test_run_mypy_counts_found_errors(monkeypatch):
+    def fake_run(*a, **k):
+        return _sp.CompletedProcess(a, 1, stdout="app/x.py:1: error: bad\nFound 2 errors in 1 file\n", stderr="")
+    monkeypatch.setattr(cq.subprocess, "run", fake_run)
+    assert cq._run_mypy() == 2

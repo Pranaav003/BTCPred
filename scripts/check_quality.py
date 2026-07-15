@@ -11,6 +11,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE_PATH = REPO_ROOT / "quality_baseline.json"
 VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
+VENV_RUFF = REPO_ROOT / ".venv" / "bin" / "ruff"
+_SENTINEL = 10**9  # parse-failure count: always treated as a regression, never a silent pass
 
 
 def ratchet(passed: int, coverage_pct: float, baseline: dict,
@@ -50,6 +52,38 @@ def _run_suite() -> tuple[bool, int, float]:
     coverage = float(m_cov.group(1)) if m_cov else 0.0
     all_passed = proc.returncode == 0
     return all_passed, passed, coverage
+
+
+def _run_ruff() -> int:
+    """Count ruff violations across app/sim/scripts. Sentinel on unparseable output."""
+    proc = subprocess.run(
+        [str(VENV_RUFF), "check", "app", "sim", "scripts", "--output-format=concise"],
+        capture_output=True, text=True,
+    )
+    if proc.returncode == 0:
+        return 0
+    out = proc.stdout + proc.stderr
+    m = re.search(r"Found (\d+) error", out)
+    if m:
+        return int(m.group(1))
+    n = len(re.findall(r"^\S+:\d+:\d+:", out, re.M))
+    return n if n > 0 else _SENTINEL
+
+
+def _run_mypy() -> int:
+    """Count mypy errors across app/sim. Sentinel on unparseable output."""
+    proc = subprocess.run(
+        [str(VENV_PYTHON), "-m", "mypy", "app", "sim"],
+        capture_output=True, text=True,
+    )
+    if proc.returncode == 0:
+        return 0
+    out = proc.stdout + proc.stderr
+    m = re.search(r"Found (\d+) error", out)
+    if m:
+        return int(m.group(1))
+    n = len(re.findall(r": error:", out))
+    return n if n > 0 else _SENTINEL
 
 
 def _load_baseline() -> dict:
