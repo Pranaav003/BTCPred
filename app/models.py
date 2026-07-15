@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-UTC = timezone.utc  # datetime.UTC was added in Python 3.11; alias for 3.9 compatibility
+from datetime import datetime, UTC
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import Index, text

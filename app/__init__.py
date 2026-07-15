@@ -1,7 +1,5 @@
 """Application factory for the Kalshi Signal Flask app."""
 
-from __future__ import annotations
-
 import json
 import os
 
