@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Run tests with the **`pytest` on PATH** (Python 3.9, which has `pytest` + `pytest-cov`). Do NOT use `python3 -m pytest` — the system `python3` (3.14) has no pytest. All `Run:` commands below use bare `pytest`.
+- Run tests with the **project venv on Python 3.13: `.venv/bin/python -m pytest`**. The `.venv` (created `python3.13 -m venv .venv`, deps from `requirements.txt` + `requirements-dev.txt`) is the canonical interpreter — the app targets Python 3.11+ (`datetime.UTC`, runtime PEP-604 unions), so system 3.9/3.14 are unusable. **Wherever a step shows `Run: pytest ...`, use `.venv/bin/python -m pytest ...`.** Do NOT add Python-3.9 compat shims to app source.
 - Keep the no-build stack: Jinja templates + vanilla JS + custom CSS. No framework, no npm.
 - Settings are string key/values in the `AppSettings` table, read/written via `app.db_helpers.get_setting(key, default=None)` and `set_setting(key, value)`.
 - The Control Center defaults to **PAPER**; live trading stays OFF by default and requires explicit action.
@@ -161,9 +161,31 @@ Expected: FAIL — fixtures `client`/`app` not found.
 ```python
 # tests/conftest.py
 """Shared pytest fixtures for the BTCPred test suite."""
+import sys
+
 import pytest
 
 from app import create_app
+
+
+@pytest.fixture(autouse=True)
+def _isolate_sys_modules():
+    """Snapshot and restore sys.modules around every test.
+
+    Several existing unit tests (e.g. test_paper_trading.py) stub out
+    flask/sqlalchemy/apscheduler in sys.modules and importlib-load a module
+    under test. Without cleanup that pollution leaks across tests and breaks
+    later tests that need the real modules (order-dependent failures in the
+    full suite). Restoring the snapshot after each test neutralizes it.
+    """
+    saved = dict(sys.modules)
+    try:
+        yield
+    finally:
+        for name in list(sys.modules):
+            if name not in saved:
+                del sys.modules[name]
+        sys.modules.update(saved)
 
 
 @pytest.fixture
@@ -186,16 +208,21 @@ def client(app):
 
 Note: if `test_client_fixture_hits_health` fails on the exact `status` string, read `app/routes/api.py` `/api/health` handler and assert the actual value it returns.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run test to verify it passes — AND the full suite goes green**
 
-Run: `pytest tests/test_conftest_fixtures.py -v`
+Run: `.venv/bin/python -m pytest tests/test_conftest_fixtures.py -v`
 Expected: PASS (2 passed).
+
+Then verify the autouse isolation fixture fixed the order-dependent failures:
+
+Run: `.venv/bin/python -m pytest -q`
+Expected: **all tests pass, 0 failed** (before this task, ~17 `test_paper_trading.py` tests failed only in the full-suite run due to `sys.modules` pollution). If any remain, the isolation fixture needs adjustment — report BLOCKED with the failing test names and output rather than proceeding.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add tests/conftest.py tests/test_conftest_fixtures.py
-git commit -m "test: shared conftest app/client fixtures on testing config"
+git commit -m "test: conftest fixtures + sys.modules isolation (fixes full-suite pollution)"
 ```
 
 ---
@@ -491,7 +518,8 @@ def ratchet(passed: int, coverage_pct: float, baseline: dict,
 def _run_suite() -> tuple[bool, int, float]:
     """Run pytest with coverage. Returns (all_passed, passed_count, coverage_pct)."""
     proc = subprocess.run(
-        ["pytest", "--cov=app", "--cov=sim", "--cov-report=term-missing", "-q"],
+        [".venv/bin/python", "-m", "pytest", "--cov=app", "--cov=sim",
+         "--cov-report=term-missing", "-q"],
         capture_output=True, text=True,
     )
     out = proc.stdout + proc.stderr
@@ -567,7 +595,7 @@ Expected: PASS (5 passed).
 
 - [ ] **Step 5: Seed the real baseline and commit**
 
-Run: `python3 scripts/check_quality.py --init` (this invokes `pytest` internally via PATH)
+Run: `.venv/bin/python scripts/check_quality.py --init` (it invokes `.venv/bin/python -m pytest` internally)
 Expected: prints `QUALITY: baseline seeded (tests=NN, cov=XX%)` and writes real numbers into `quality_baseline.json`.
 
 ```bash
@@ -648,7 +676,7 @@ Create `.claude/settings.json` (merge into existing `hooks` if the file already 
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/check_quality.py --check-only"
+            "command": ".venv/bin/python scripts/check_quality.py --check-only"
           }
         ]
       }
@@ -1183,8 +1211,9 @@ Add a section to `README.md` (create the file if absent) covering:
 
 ```markdown
 ## Quality harness
-- Run tests: `pytest` (uses `pyproject.toml`; Python 3.9 `pytest` on PATH).
-- Coverage + ratchet: `python3 scripts/check_quality.py` (raises the baseline in
+- Setup: `python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt`.
+- Run tests: `.venv/bin/python -m pytest` (Python 3.13 venv; config in `pyproject.toml`).
+- Coverage + ratchet: `.venv/bin/python scripts/check_quality.py` (raises the baseline in
   `quality_baseline.json` on success; `--check-only` fails on regression without raising).
 - A `.claude/settings.json` Stop hook runs `check_quality.py --check-only` after each change.
 
@@ -1214,7 +1243,7 @@ git commit -m "docs: quality harness + control center usage; final baseline"
 
 ## Notes for the implementer
 
-- **Interpreter:** always invoke `pytest` (PATH, Python 3.9). `python3 script.py` is fine for scripts, but tests run under the PATH `pytest`.
+- **Interpreter:** always use the venv — `.venv/bin/python -m pytest` for tests, `.venv/bin/python scripts/check_quality.py` for the ratchet. The app targets Python 3.11+; never add 3.9 compat shims to app source. If `.venv` is missing, create it: `python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt`.
 - **Do not modify** existing page templates/JS (`main.js`, `monitor.js`, `analytics.js`, their templates) beyond the `base.html` nav link and the `/` redirect target.
 - **E2E test (Task 5)** is the one place you must read real signatures before writing; escalate BLOCKED if a deterministic no-network test isn't achievable, rather than guessing.
 - **Ratchet during the build:** as each task adds tests, the Stop hook (Task 7 onward) ratchets the baseline up automatically; never edit `quality_baseline.json` by hand except via `check_quality.py`.
