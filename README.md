@@ -177,8 +177,8 @@ LIVE ORDER PLACED: YES 25 contracts on KXBTC15M-... at 72c
 ## Quality harness
 - Setup: `python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt`.
 - Run tests: `.venv/bin/python -m pytest` (Python 3.13 venv; config in `pyproject.toml`).
-- Coverage + ratchet: `.venv/bin/python scripts/check_quality.py` (raises the baseline in
-  `quality_baseline.json` on success; `--check-only` fails on regression without raising).
+- Coverage + ratchet: `.venv/bin/python scripts/check_quality.py` (updates the 4-metric baseline in
+  `test-baseline.json` on success; `--check-only` fails on regression without moving the baseline).
 - A `.claude/settings.json` Stop hook runs `check_quality.py --check-only` after each change.
 
 ## Strategy Control Center

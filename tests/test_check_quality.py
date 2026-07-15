@@ -9,38 +9,41 @@ cq = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cq)
 
 
-def test_regression_in_tests_fails():
-    base = {"tests_passed": 100, "coverage_pct": 50.0}
-    ok, new = cq.ratchet(99, 50.0, base)
+_DIRS = {"tests_passed": "up", "coverage_pct": "up",
+         "ruff_violations": "down", "mypy_errors": "down"}
+
+
+def _base():
+    return {"tests_passed": 204, "coverage_pct": 40.0, "ruff_violations": 50, "mypy_errors": 20}
+
+
+def test_ratchet_all_hold_when_equal():
+    ok, new = cq.ratchet(_base(), _base())
+    assert ok is True and new == _base()
+
+
+def test_ratchet_all_improves_every_metric():
+    cur = {"tests_passed": 210, "coverage_pct": 45.0, "ruff_violations": 30, "mypy_errors": 10}
+    ok, new = cq.ratchet(cur, _base())
+    assert ok is True and new == cur  # all moved in the improving direction
+
+
+def test_ratchet_fails_on_test_regression():
+    cur = {"tests_passed": 203, "coverage_pct": 40.0, "ruff_violations": 50, "mypy_errors": 20}
+    ok, new = cq.ratchet(cur, _base())
+    assert ok is False and new == _base()
+
+
+def test_ratchet_fails_on_more_ruff_violations():
+    cur = {"tests_passed": 204, "coverage_pct": 40.0, "ruff_violations": 51, "mypy_errors": 20}
+    ok, new = cq.ratchet(cur, _base())
     assert ok is False
-    assert new == base  # unchanged on failure
 
 
-def test_coverage_regression_fails():
-    base = {"tests_passed": 100, "coverage_pct": 50.0}
-    ok, new = cq.ratchet(100, 49.9, base)
-    assert ok is False
-
-
-def test_improvement_ratchets_up():
-    base = {"tests_passed": 100, "coverage_pct": 50.0}
-    ok, new = cq.ratchet(105, 55.0, base)
-    assert ok is True
-    assert new == {"tests_passed": 105, "coverage_pct": 55.0}
-
-
-def test_equal_is_ok_and_holds_baseline():
-    base = {"tests_passed": 100, "coverage_pct": 50.0}
-    ok, new = cq.ratchet(100, 50.0, base)
-    assert ok is True
-    assert new == base
-
-
-def test_check_only_never_raises_baseline():
-    base = {"tests_passed": 100, "coverage_pct": 50.0}
-    ok, new = cq.ratchet(105, 55.0, base, allow_raise=False)
-    assert ok is True
-    assert new == base  # not raised in check-only mode
+def test_ratchet_check_only_never_moves():
+    cur = {"tests_passed": 210, "coverage_pct": 45.0, "ruff_violations": 30, "mypy_errors": 10}
+    ok, new = cq.ratchet(cur, _base(), allow_move=False)
+    assert ok is True and new == _base()
 
 
 def test_ratchet_directional_up():
