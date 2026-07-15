@@ -186,3 +186,5 @@ LIVE ORDER PLACED: YES 25 contracts on KXBTC15M-... at 72c
 - "Apply validated defaults" sets the validated ensemble config (threshold 0.25, moderate profile,
   NO gate 0.20, entry caps) and turns paper trading on.
 - Fresh deploys come up paper-trading the validated strategy; live trading stays OFF until enabled.
+
+**Safety note:** the dashboard has no authentication. The browser "type LIVE to confirm" prompt is a UX guard, not a security gate — any process with HTTP access can `POST /api/settings {"live_trading_enabled": true}` directly. Restrict network access to the app accordingly.

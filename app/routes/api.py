@@ -1438,6 +1438,8 @@ def control_apply_defaults():
     # Normalize threshold string "0.2500" -> "0.25" for display consistency.
     values = dict(VALIDATED_SETTINGS)
     values["mispricing_threshold"] = "0.25"
+    # live_max_contracts is a live-side cap, not a paper concern — leave it alone.
+    values.pop("live_max_contracts", None)
     # Paper on, live off.
     values.update({
         "signal_mode": "ensemble",

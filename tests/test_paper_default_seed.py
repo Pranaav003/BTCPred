@@ -4,3 +4,4 @@ def test_paper_defaults_on_live_off(app):
     assert get_setting("auto_trade_enabled") == "true"
     assert get_setting("live_trading_enabled") == "false"
     assert get_setting("mispricing_threshold") == "0.25"
+    assert get_setting("scheduler_running") == "true"

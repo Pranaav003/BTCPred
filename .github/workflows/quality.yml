@@ -8,5 +8,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - run: pytest --cov=app --cov=sim -q
+      - run: python -m venv .venv
+      - run: .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+      - run: .venv/bin/python scripts/check_quality.py --check-only
