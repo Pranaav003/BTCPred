@@ -20,4 +20,5 @@ def test_apply_defaults_sets_validated_paper_config(client):
     assert get_setting("signal_mode") == "ensemble"
     assert float(get_setting("mispricing_threshold")) == 0.25
     assert get_setting("paper_trading_enabled") == "true"
+    assert get_setting("auto_trade_enabled") == "true"
     assert get_setting("live_trading_enabled") == "false"
