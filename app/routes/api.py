@@ -1429,6 +1429,28 @@ def paper_reset():
     return jsonify(reset_portfolio(starting_balance=starting_balance))
 
 
+@api_bp.route("/control/apply-defaults", methods=["POST"])
+def control_apply_defaults():
+    from app.db_helpers import set_setting
+    from apply_backtest_settings import VALIDATED_SETTINGS
+
+    updated = []
+    # Normalize threshold string "0.2500" -> "0.25" for display consistency.
+    values = dict(VALIDATED_SETTINGS)
+    values["mispricing_threshold"] = "0.25"
+    # Paper on, live off.
+    values.update({
+        "signal_mode": "ensemble",
+        "paper_trading_enabled": "true",
+        "auto_trade_enabled": "true",
+        "live_trading_enabled": "false",
+    })
+    for key, val in values.items():
+        set_setting(key, val)
+        updated.append(key)
+    return jsonify({"updated": updated})
+
+
 @api_bp.route("/control/state", methods=["GET"])
 def control_state():
     from app.db_helpers import get_setting
