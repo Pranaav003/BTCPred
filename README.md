@@ -173,3 +173,16 @@ LIVE ORDER PLACED: YES 25 contracts on KXBTC15M-... at 72c
 - Paper auto-trading is paused while live trading is enabled (manual paper trades still work)
 - Max daily loss auto-stops live trading if the limit is hit
 - Rotate API keys immediately if they are ever exposed in chat, logs, or git
+
+## Quality harness
+- Setup: `python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt`.
+- Run tests: `.venv/bin/python -m pytest` (Python 3.13 venv; config in `pyproject.toml`).
+- Coverage + ratchet: `.venv/bin/python scripts/check_quality.py` (raises the baseline in
+  `quality_baseline.json` on success; `--check-only` fails on regression without raising).
+- A `.claude/settings.json` Stop hook runs `check_quality.py --check-only` after each change.
+
+## Strategy Control Center
+- `/control` is the default landing page. It defaults to PAPER; LIVE requires typed confirmation.
+- "Apply validated defaults" sets the validated ensemble config (threshold 0.25, moderate profile,
+  NO gate 0.20, entry caps) and turns paper trading on.
+- Fresh deploys come up paper-trading the validated strategy; live trading stays OFF until enabled.
