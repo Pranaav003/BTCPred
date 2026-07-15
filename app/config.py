@@ -60,7 +60,17 @@ class ProductionConfig(BaseConfig):
         }
 
 
+class TestingConfig(BaseConfig):
+    """Testing settings: in-memory DB, no scheduler, CSRF off."""
+
+    TESTING = True
+    DEBUG = False
+    SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
+    SQLALCHEMY_ENGINE_OPTIONS = {}
+
+
 config_by_name = {
     "development": DevelopmentConfig,
     "production": ProductionConfig,
+    "testing": TestingConfig,
 }

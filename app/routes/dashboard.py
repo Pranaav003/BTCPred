@@ -37,8 +37,13 @@ def _typed_settings() -> dict:
 
 @dashboard_bp.route("/")
 def home():
-    """Root URL: send users to the main dashboard (avoids stale 'placeholder' confusion)."""
-    return redirect(url_for("dashboard.dashboard"))
+    """Root URL: send users to the Strategy Control Center."""
+    return redirect(url_for("dashboard.control"))
+
+
+@dashboard_bp.route("/control")
+def control():
+    return render_template("control.html")
 
 
 @dashboard_bp.route("/dashboard")
