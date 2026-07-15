@@ -1427,3 +1427,36 @@ def paper_reset():
     payload = request.get_json(silent=True) or {}
     starting_balance = payload.get("starting_balance", 100.0)
     return jsonify(reset_portfolio(starting_balance=starting_balance))
+
+
+@api_bp.route("/control/state", methods=["GET"])
+def control_state():
+    from app.db_helpers import get_setting
+    live_on = get_setting("live_trading_enabled", "false") == "true"
+
+    # paper P&L today + trade count today (reuse existing helper if present)
+    trades_today, pnl_today = 0, 0.0
+    try:
+        from app.paper_trading import get_realized_pnl_today_utc
+        pnl_today = float(get_realized_pnl_today_utc() or 0.0)
+    except Exception:
+        pnl_today = 0.0
+    try:
+        from app.models import PaperTrade
+        from datetime import datetime, timezone
+        start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        trades_today = PaperTrade.query.filter(PaperTrade.entry_at >= start).count()
+    except Exception:
+        trades_today = 0
+
+    return jsonify({
+        "mode": "live" if live_on else "paper",
+        "scheduler_running": get_setting("scheduler_running", "false") == "true",
+        "paper_trading_enabled": get_setting("paper_trading_enabled", "false") == "true",
+        "auto_trade_enabled": get_setting("auto_trade_enabled", "false") == "true",
+        "signal_mode": get_setting("signal_mode", "ensemble"),
+        "mispricing_threshold": float(get_setting("mispricing_threshold", "0.25")),
+        "breakeven_win_rate": 0.67,
+        "trades_today": trades_today,
+        "paper_pnl_today": pnl_today,
+    })
