@@ -86,3 +86,10 @@ def test_run_ruff_sentinel_on_unparseable(monkeypatch):
     monkeypatch.setattr(cq.subprocess, "run",
                         lambda *a, **k: _sp.CompletedProcess(a, 2, stdout="ruff: internal error\n", stderr=""))
     assert cq._run_ruff() == cq._SENTINEL
+
+
+def test_run_mypy_sentinel_on_unparseable(monkeypatch):
+    # returncode != 0 with no parseable count -> sentinel (regression), never 0
+    monkeypatch.setattr(cq.subprocess, "run",
+                        lambda *a, **k: _sp.CompletedProcess(a, 2, stdout="mypy: internal crash\n", stderr=""))
+    assert cq._run_mypy() == cq._SENTINEL
