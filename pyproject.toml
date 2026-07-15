@@ -1,0 +1,14 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: pure unit tests",
+    "integration: DB/API integration tests",
+    "e2e: end-to-end pipeline tests",
+]
+
+[tool.coverage.run]
+source = ["app", "sim"]
+omit = ["tests/*", "*/__pycache__/*"]
+
+[tool.coverage.report]
+show_missing = true

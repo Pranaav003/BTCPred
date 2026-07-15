@@ -1,5 +1,7 @@
 """JSON API routes."""
 
+from __future__ import annotations
+
 import csv
 import io
 import json
@@ -9,7 +11,9 @@ import shutil
 import zipfile
 import tempfile
 from pathlib import Path
-from datetime import UTC, datetime, timezone
+from datetime import datetime, timezone
+
+UTC = timezone.utc  # datetime.UTC was added in Python 3.11; alias for 3.9 compatibility
 
 from flask import Blueprint, Response, jsonify, request, send_file, stream_with_context
 import sklearn
