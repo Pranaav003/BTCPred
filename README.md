@@ -174,12 +174,15 @@ LIVE ORDER PLACED: YES 25 contracts on KXBTC15M-... at 72c
 - Max daily loss auto-stops live trading if the limit is hit
 - Rotate API keys immediately if they are ever exposed in chat, logs, or git
 
-## Quality harness
-- Setup: `python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt`.
-- Run tests: `.venv/bin/python -m pytest` (Python 3.13 venv; config in `pyproject.toml`).
-- Coverage + ratchet: `.venv/bin/python scripts/check_quality.py` (raises the baseline in
-  `quality_baseline.json` on success; `--check-only` fails on regression without raising).
-- A `.claude/settings.json` Stop hook runs `check_quality.py --check-only` after each change.
+## Quality gates
+- Setup: `python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt`
+- Run tests: `.venv/bin/python -m pytest`
+- Lint: `.venv/bin/ruff check app sim scripts` · Types: `.venv/bin/python -m mypy app sim`
+- Ratchet: `.venv/bin/python scripts/check_quality.py` enforces `test-baseline.json`:
+  `tests_passed` and `coverage_pct` may only rise; `ruff_violations` and `mypy_errors` may only fall.
+  `--check-only` fails on any regression without moving the baseline.
+- Enforced by: the `.claude/settings.json` Stop hook, GitHub CI, and a git pre-commit hook
+  (`.venv/bin/pre-commit install`).
 
 ## Strategy Control Center
 - `/control` is the default landing page. It defaults to PAPER; LIVE requires typed confirmation.

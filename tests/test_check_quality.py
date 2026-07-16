@@ -9,35 +9,87 @@ cq = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cq)
 
 
-def test_regression_in_tests_fails():
-    base = {"tests_passed": 100, "coverage_pct": 50.0}
-    ok, new = cq.ratchet(99, 50.0, base)
+_DIRS = {"tests_passed": "up", "coverage_pct": "up",
+         "ruff_violations": "down", "mypy_errors": "down"}
+
+
+def _base():
+    return {"tests_passed": 204, "coverage_pct": 40.0, "ruff_violations": 50, "mypy_errors": 20}
+
+
+def test_ratchet_all_hold_when_equal():
+    ok, new = cq.ratchet(_base(), _base())
+    assert ok is True and new == _base()
+
+
+def test_ratchet_all_improves_every_metric():
+    cur = {"tests_passed": 210, "coverage_pct": 45.0, "ruff_violations": 30, "mypy_errors": 10}
+    ok, new = cq.ratchet(cur, _base())
+    assert ok is True and new == cur  # all moved in the improving direction
+
+
+def test_ratchet_fails_on_test_regression():
+    cur = {"tests_passed": 203, "coverage_pct": 40.0, "ruff_violations": 50, "mypy_errors": 20}
+    ok, new = cq.ratchet(cur, _base())
+    assert ok is False and new == _base()
+
+
+def test_ratchet_fails_on_more_ruff_violations():
+    cur = {"tests_passed": 204, "coverage_pct": 40.0, "ruff_violations": 51, "mypy_errors": 20}
+    ok, new = cq.ratchet(cur, _base())
     assert ok is False
-    assert new == base  # unchanged on failure
 
 
-def test_coverage_regression_fails():
-    base = {"tests_passed": 100, "coverage_pct": 50.0}
-    ok, new = cq.ratchet(100, 49.9, base)
-    assert ok is False
+def test_ratchet_check_only_never_moves():
+    cur = {"tests_passed": 210, "coverage_pct": 45.0, "ruff_violations": 30, "mypy_errors": 10}
+    ok, new = cq.ratchet(cur, _base(), allow_move=False)
+    assert ok is True and new == _base()
 
 
-def test_improvement_ratchets_up():
-    base = {"tests_passed": 100, "coverage_pct": 50.0}
-    ok, new = cq.ratchet(105, 55.0, base)
-    assert ok is True
-    assert new == {"tests_passed": 105, "coverage_pct": 55.0}
+def test_ratchet_directional_up():
+    assert cq.ratchet_directional(205, 204, "up") == (True, 205)   # improve
+    assert cq.ratchet_directional(204, 204, "up") == (True, 204)   # equal
+    assert cq.ratchet_directional(203, 204, "up") == (False, 204)  # regress -> hold
 
 
-def test_equal_is_ok_and_holds_baseline():
-    base = {"tests_passed": 100, "coverage_pct": 50.0}
-    ok, new = cq.ratchet(100, 50.0, base)
-    assert ok is True
-    assert new == base
+def test_ratchet_directional_down():
+    assert cq.ratchet_directional(5, 8, "down") == (True, 5)    # fewer violations = improve
+    assert cq.ratchet_directional(8, 8, "down") == (True, 8)    # equal
+    assert cq.ratchet_directional(9, 8, "down") == (False, 8)   # more = regress -> hold
 
 
-def test_check_only_never_raises_baseline():
-    base = {"tests_passed": 100, "coverage_pct": 50.0}
-    ok, new = cq.ratchet(105, 55.0, base, allow_raise=False)
-    assert ok is True
-    assert new == base  # not raised in check-only mode
+import subprocess as _sp
+
+
+def test_run_ruff_counts_found_errors(monkeypatch):
+    def fake_run(*a, **k):
+        return _sp.CompletedProcess(a, 1, stdout="app/x.py:1:1: F401 unused\nFound 3 errors.\n", stderr="")
+    monkeypatch.setattr(cq.subprocess, "run", fake_run)
+    assert cq._run_ruff() == 3
+
+
+def test_run_ruff_zero_on_clean(monkeypatch):
+    monkeypatch.setattr(cq.subprocess, "run",
+                        lambda *a, **k: _sp.CompletedProcess(a, 0, stdout="All checks passed!\n", stderr=""))
+    assert cq._run_ruff() == 0
+
+
+def test_run_mypy_counts_found_errors(monkeypatch):
+    def fake_run(*a, **k):
+        return _sp.CompletedProcess(a, 1, stdout="app/x.py:1: error: bad\nFound 2 errors in 1 file\n", stderr="")
+    monkeypatch.setattr(cq.subprocess, "run", fake_run)
+    assert cq._run_mypy() == 2
+
+
+def test_run_ruff_sentinel_on_unparseable(monkeypatch):
+    # returncode != 0 but no "Found N" and no violation lines -> sentinel (regression), never 0
+    monkeypatch.setattr(cq.subprocess, "run",
+                        lambda *a, **k: _sp.CompletedProcess(a, 2, stdout="ruff: internal error\n", stderr=""))
+    assert cq._run_ruff() == cq._SENTINEL
+
+
+def test_run_mypy_sentinel_on_unparseable(monkeypatch):
+    # returncode != 0 with no parseable count -> sentinel (regression), never 0
+    monkeypatch.setattr(cq.subprocess, "run",
+                        lambda *a, **k: _sp.CompletedProcess(a, 2, stdout="mypy: internal crash\n", stderr=""))
+    assert cq._run_mypy() == cq._SENTINEL

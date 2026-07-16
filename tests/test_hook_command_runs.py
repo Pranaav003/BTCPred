@@ -23,15 +23,17 @@ def test_settings_json_has_stop_hook():
 
 
 def test_check_only_returns_zero_when_suite_green(monkeypatch):
-    # Validate the hook command's LOGIC without actually running pytest again.
-    # (Running the real suite here would recurse: the subprocess pytest would
-    # re-collect this test, spawning pytest endlessly.)
     cq = _load_cq()
-    monkeypatch.setattr(cq, "_run_suite", lambda: (True, 10_000, 100.0))
+    monkeypatch.setattr(cq, "_measure", lambda: (True, {
+        "tests_passed": 10_000, "coverage_pct": 100.0,
+        "ruff_violations": 0, "mypy_errors": 0}))
     assert cq.main(["--check-only"]) == 0
 
 
 def test_check_only_returns_one_when_suite_red(monkeypatch):
     cq = _load_cq()
-    monkeypatch.setattr(cq, "_run_suite", lambda: (False, 0, 0.0))
+    # all_passed=False makes main return 1 early, so the metric values are irrelevant.
+    monkeypatch.setattr(cq, "_measure", lambda: (False, {
+        "tests_passed": 0, "coverage_pct": 0.0,
+        "ruff_violations": 0, "mypy_errors": 0}))
     assert cq.main(["--check-only"]) == 1

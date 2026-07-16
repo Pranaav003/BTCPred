@@ -1,3 +1,6 @@
 pytest==8.3.5
 pytest-cov==7.1.0
 coverage==7.10.7
+ruff==0.15.21
+mypy==2.3.0
+pre-commit==4.6.0
