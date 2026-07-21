@@ -170,3 +170,10 @@ def test_init_preserves_perf_block(monkeypatch, tmp_path):
     saved = json.loads(bl.read_text())
     assert saved["perf"] == {"api_health_ms": 0.2}   # preserved, not clobbered
     assert saved["tests_passed"] == 5
+
+
+def test_perf_ratchet_mixed_pass_and_regress_holds_all():
+    # one metric improves, another regresses -> whole run fails, baseline unchanged (no partial ratchet)
+    base = {"a_ms": 10.0, "b_ms": 10.0}
+    ok, new = cq.perf_ratchet({"a_ms": 8.0, "b_ms": 20.0}, base)
+    assert ok is False and new == base
