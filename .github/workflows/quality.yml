@@ -11,3 +11,5 @@ jobs:
       - run: python -m venv .venv
       - run: .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
       - run: .venv/bin/python scripts/check_quality.py --check-only
+      - name: performance (informational, non-blocking)
+        run: .venv/bin/python scripts/check_quality.py --perf || true

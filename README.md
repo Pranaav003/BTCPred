@@ -181,6 +181,11 @@ LIVE ORDER PLACED: YES 25 contracts on KXBTC15M-... at 72c
 - Ratchet: `.venv/bin/python scripts/check_quality.py` enforces `test-baseline.json`:
   `tests_passed` and `coverage_pct` may only rise; `ruff_violations` and `mypy_errors` may only fall.
   `--check-only` fails on any regression without moving the baseline.
+- Performance: `.venv/bin/python scripts/check_quality.py --perf` measures hot-path latency
+  (`predict_proba_raw` + key endpoints) and fails on a >10% regression vs the `perf` block in
+  `test-baseline.json` (ratchets down on improvement). Perf is environment-sensitive, so it runs
+  on-demand and as a **non-blocking** CI step (not in the every-turn Stop hook); run it locally via
+  `.venv/bin/pre-commit run perf-gate --hook-stage manual`.
 - Enforced by: the `.claude/settings.json` Stop hook, GitHub CI, and a git pre-commit hook
   (`.venv/bin/pre-commit install`).
 

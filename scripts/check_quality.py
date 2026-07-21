@@ -13,6 +13,8 @@ BASELINE_PATH = REPO_ROOT / "test-baseline.json"
 VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
 VENV_RUFF = REPO_ROOT / ".venv" / "bin" / "ruff"
 _SENTINEL = 10**9  # parse-failure count: always treated as a regression, never a silent pass
+PERF_TOLERANCE = 1.10
+PERF_ABS_FLOOR_MS = 0.5  # absolute floor for sub-ms metrics; +10% alone is noise-tight
 
 _DIRECTIONS = {
     "tests_passed": "up",
@@ -40,6 +42,43 @@ def ratchet_directional(current, baseline_val, direction: str):
     if direction == "up":
         return (current >= baseline_val, max(current, baseline_val))
     return (current <= baseline_val, min(current, baseline_val))
+
+
+def perf_ok(
+    current: float, baseline: float,
+    tol: float = PERF_TOLERANCE, floor_ms: float = PERF_ABS_FLOOR_MS,
+) -> bool:
+    # OK if within relative band OR absolute floor (whichever is more generous).
+    return current <= max(baseline * tol, baseline + floor_ms)
+
+
+def perf_ratchet(
+    current: dict, baseline: dict, tol: float = PERF_TOLERANCE
+) -> tuple[bool, dict]:
+    """Perf metrics ratchet DOWN with a +tol band. ok=False if ANY exceeds band.
+    Unknown metrics (not in baseline) are accepted and seeded."""
+    ok_all = True
+    new = dict(baseline)
+    for key, cur in current.items():
+        base = baseline.get(key)
+        if base is None:
+            new[key] = cur            # seed a newly-tracked metric
+            continue
+        if not perf_ok(cur, base, tol):
+            ok_all = False
+        new[key] = min(cur, base)
+    if not ok_all:
+        return False, baseline
+    return True, new
+
+
+def _run_perf() -> dict:
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "perf_probe", REPO_ROOT / "scripts" / "perf_probe.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.measure()
 
 
 def _run_suite() -> tuple[bool, int, float]:
@@ -120,7 +159,25 @@ def main(argv=None) -> int:
                         help="fail on regression but never move the baseline")
     parser.add_argument("--init", action="store_true",
                         help="seed the baseline from the current run")
+    parser.add_argument("--perf", action="store_true",
+                        help="measure hot-path latency; fail on >10% regression")
     args = parser.parse_args(argv)
+
+    if args.perf:
+        metrics = _run_perf()
+        baseline = _load_baseline()
+        ok, new_perf = perf_ratchet(metrics, baseline.get("perf", {}))
+        if not ok:
+            bl = baseline.get("perf", {})
+            print(f"PERF: FAIL — regression. baseline={bl} current={metrics}")
+            return 1
+        if new_perf != baseline.get("perf"):
+            baseline["perf"] = new_perf
+            _save_baseline(baseline)
+            print(f"PERF: PASS — perf baseline updated to {new_perf}")
+        else:
+            print(f"PERF: PASS — perf baseline held {new_perf}")
+        return 0
 
     all_passed, metrics = _measure()
     if not all_passed:
@@ -128,8 +185,13 @@ def main(argv=None) -> int:
         return 1
 
     if args.init or not BASELINE_PATH.exists():
-        _save_baseline(metrics)
-        print(f"QUALITY: baseline seeded {metrics}")
+        to_save = dict(metrics)
+        if BASELINE_PATH.exists():
+            prev = _load_baseline()
+            if "perf" in prev:
+                to_save["perf"] = prev["perf"]
+        _save_baseline(to_save)
+        print(f"QUALITY: baseline seeded {to_save}")
         return 0
 
     baseline = _load_baseline()

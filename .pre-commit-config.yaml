@@ -9,3 +9,9 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: perf-gate
+        name: performance gate (hot-path latency, +10% band)
+        entry: .venv/bin/python scripts/check_quality.py --perf
+        language: system
+        pass_filenames: false
+        stages: [manual]
