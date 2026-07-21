@@ -139,6 +139,34 @@ def test_perf_cli_over_band_returns_one(monkeypatch, tmp_path):
                               "ruff_violations": 0, "mypy_errors": 0,
                               "perf": {"api_health_ms": 0.2}}))
     monkeypatch.setattr(cq, "BASELINE_PATH", bl)
-    monkeypatch.setattr(cq, "_run_perf", lambda: {"api_health_ms": 0.5})  # way over band
+    monkeypatch.setattr(cq, "_run_perf", lambda: {"api_health_ms": 0.8})  # over relative+floor band (0.2+0.5=0.7)
     assert cq.main(["--perf"]) == 1
     assert json.loads(bl.read_text())["perf"]["api_health_ms"] == 0.2  # unchanged
+
+
+def test_perf_ok_absolute_floor_tolerates_subms_noise():
+    # 0.125ms baseline: +10% alone = 0.1375 (too tight); the 0.5ms floor gives real headroom.
+    assert cq.perf_ok(0.14, 0.125) is True
+    assert cq.perf_ok(0.60, 0.125) is True
+    assert cq.perf_ok(0.70, 0.125) is False   # beyond the floor
+
+
+def test_perf_ok_large_metric_uses_relative_band():
+    assert cq.perf_ok(45.0, 43.0) is True      # within +10%
+    assert cq.perf_ok(48.0, 43.0) is False     # over +10% (floor 43.5 doesn't rescue)
+
+
+def test_init_preserves_perf_block(monkeypatch, tmp_path):
+    import json
+    bl = tmp_path / "tb.json"
+    bl.write_text(json.dumps({"tests_passed": 1, "coverage_pct": 0.0,
+                              "ruff_violations": 0, "mypy_errors": 0,
+                              "perf": {"api_health_ms": 0.2}}))
+    monkeypatch.setattr(cq, "BASELINE_PATH", bl)
+    monkeypatch.setattr(cq, "_measure",
+                        lambda: (True, {"tests_passed": 5, "coverage_pct": 10.0,
+                                        "ruff_violations": 3, "mypy_errors": 1}))
+    assert cq.main(["--init"]) == 0
+    saved = json.loads(bl.read_text())
+    assert saved["perf"] == {"api_health_ms": 0.2}   # preserved, not clobbered
+    assert saved["tests_passed"] == 5

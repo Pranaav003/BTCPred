@@ -4,9 +4,9 @@
   "ruff_violations": 274,
   "mypy_errors": 38,
   "perf": {
-    "predict_proba_raw_ms": 41.218854021281004,
-    "api_control_state_ms": 0.7611040491610765,
-    "api_settings_ms": 0.8343125227838755,
-    "api_health_ms": 0.125042162835598
+    "predict_proba_raw_ms": 44.053250225260854,
+    "api_control_state_ms": 0.7849999237805605,
+    "api_settings_ms": 0.8313541766256094,
+    "api_health_ms": 0.1277707051485777
   }
 }

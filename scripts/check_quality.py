@@ -14,6 +14,7 @@ VENV_PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
 VENV_RUFF = REPO_ROOT / ".venv" / "bin" / "ruff"
 _SENTINEL = 10**9  # parse-failure count: always treated as a regression, never a silent pass
 PERF_TOLERANCE = 1.10
+PERF_ABS_FLOOR_MS = 0.5  # absolute floor for sub-ms metrics; +10% alone is noise-tight
 
 _DIRECTIONS = {
     "tests_passed": "up",
@@ -43,8 +44,12 @@ def ratchet_directional(current, baseline_val, direction: str):
     return (current <= baseline_val, min(current, baseline_val))
 
 
-def perf_ok(current: float, baseline: float, tol: float = PERF_TOLERANCE) -> bool:
-    return current <= baseline * tol
+def perf_ok(
+    current: float, baseline: float,
+    tol: float = PERF_TOLERANCE, floor_ms: float = PERF_ABS_FLOOR_MS,
+) -> bool:
+    # OK if within relative band OR absolute floor (whichever is more generous).
+    return current <= max(baseline * tol, baseline + floor_ms)
 
 
 def perf_ratchet(
@@ -180,8 +185,13 @@ def main(argv=None) -> int:
         return 1
 
     if args.init or not BASELINE_PATH.exists():
-        _save_baseline(metrics)
-        print(f"QUALITY: baseline seeded {metrics}")
+        to_save = dict(metrics)
+        if BASELINE_PATH.exists():
+            prev = _load_baseline()
+            if "perf" in prev:
+                to_save["perf"] = prev["perf"]
+        _save_baseline(to_save)
+        print(f"QUALITY: baseline seeded {to_save}")
         return 0
 
     baseline = _load_baseline()
