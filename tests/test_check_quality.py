@@ -93,3 +93,52 @@ def test_run_mypy_sentinel_on_unparseable(monkeypatch):
     monkeypatch.setattr(cq.subprocess, "run",
                         lambda *a, **k: _sp.CompletedProcess(a, 2, stdout="mypy: internal crash\n", stderr=""))
     assert cq._run_mypy() == cq._SENTINEL
+
+
+def test_perf_ok_band():
+    assert cq.perf_ok(44.0, 43.0) is True     # within +10%
+    assert cq.perf_ok(47.3, 43.0) is True      # ~ exactly 43*1.1
+    assert cq.perf_ok(48.0, 43.0) is False     # over band
+
+
+def test_perf_ratchet_within_band_ratchets_down():
+    base = {"predict_proba_raw_ms": 43.0, "api_health_ms": 0.2}
+    ok, new = cq.perf_ratchet({"predict_proba_raw_ms": 40.0, "api_health_ms": 0.2}, base)
+    assert ok is True
+    assert new["predict_proba_raw_ms"] == 40.0   # improved -> min
+    assert new["api_health_ms"] == 0.2
+
+
+def test_perf_ratchet_over_band_fails_and_holds():
+    base = {"predict_proba_raw_ms": 43.0}
+    ok, new = cq.perf_ratchet({"predict_proba_raw_ms": 48.0}, base)  # >43*1.1
+    assert ok is False and new == base
+
+
+def test_perf_ratchet_seeds_unknown_metric():
+    ok, new = cq.perf_ratchet({"new_ms": 5.0}, {})
+    assert ok is True and new["new_ms"] == 5.0
+
+
+def test_perf_cli_within_band_returns_zero(monkeypatch, tmp_path):
+    import json
+    bl = tmp_path / "tb.json"
+    bl.write_text(json.dumps({"tests_passed": 1, "coverage_pct": 0.0,
+                              "ruff_violations": 0, "mypy_errors": 0,
+                              "perf": {"api_health_ms": 0.2}}))
+    monkeypatch.setattr(cq, "BASELINE_PATH", bl)
+    monkeypatch.setattr(cq, "_run_perf", lambda: {"api_health_ms": 0.19})
+    assert cq.main(["--perf"]) == 0
+    assert json.loads(bl.read_text())["perf"]["api_health_ms"] == 0.19  # ratcheted down
+
+
+def test_perf_cli_over_band_returns_one(monkeypatch, tmp_path):
+    import json
+    bl = tmp_path / "tb.json"
+    bl.write_text(json.dumps({"tests_passed": 1, "coverage_pct": 0.0,
+                              "ruff_violations": 0, "mypy_errors": 0,
+                              "perf": {"api_health_ms": 0.2}}))
+    monkeypatch.setattr(cq, "BASELINE_PATH", bl)
+    monkeypatch.setattr(cq, "_run_perf", lambda: {"api_health_ms": 0.5})  # way over band
+    assert cq.main(["--perf"]) == 1
+    assert json.loads(bl.read_text())["perf"]["api_health_ms"] == 0.2  # unchanged

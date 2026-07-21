@@ -1,6 +1,12 @@
 {
-  "tests_passed": 212,
-  "coverage_pct": 40.0,
-  "ruff_violations": 278,
-  "mypy_errors": 38
+  "tests_passed": 347,
+  "coverage_pct": 44.0,
+  "ruff_violations": 274,
+  "mypy_errors": 38,
+  "perf": {
+    "predict_proba_raw_ms": 41.218854021281004,
+    "api_control_state_ms": 0.7611040491610765,
+    "api_settings_ms": 0.8343125227838755,
+    "api_health_ms": 0.125042162835598
+  }
 }
