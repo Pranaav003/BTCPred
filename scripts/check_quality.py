@@ -190,6 +190,17 @@ def main(argv=None) -> int:
             prev = _load_baseline()
             if "perf" in prev:
                 to_save["perf"] = prev["perf"]
+            # A re-seed is meant to accept a deliberate rise in ruff_violations
+            # (e.g. enabling BLE001) — so ruff/tests_passed take the current run.
+            # But it must NOT silently relax the coverage/mypy watermarks: keep
+            # the stricter floor (higher coverage, fewer mypy errors) exactly as
+            # the perf block is preserved. Prevents a re-seed from discarding a
+            # prior quality watermark when new-but-unexercised code dips coverage.
+            for metric in ("coverage_pct", "mypy_errors"):
+                if metric in prev and metric in to_save:
+                    _, to_save[metric] = ratchet_directional(
+                        to_save[metric], prev[metric], _DIRECTIONS[metric]
+                    )
         _save_baseline(to_save)
         print(f"QUALITY: baseline seeded {to_save}")
         return 0

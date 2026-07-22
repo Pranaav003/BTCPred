@@ -1,7 +1,7 @@
 {
-  "tests_passed": 347,
-  "coverage_pct": 44.0,
-  "ruff_violations": 274,
+  "tests_passed": 251,
+  "coverage_pct": 42.0,
+  "ruff_violations": 319,
   "mypy_errors": 38,
   "perf": {
     "predict_proba_raw_ms": 44.053250225260854,

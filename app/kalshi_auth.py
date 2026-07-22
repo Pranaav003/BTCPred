@@ -55,7 +55,9 @@ def get_private_key():
         _cached_private_key = key
         return key
     except Exception as exc:
-        logger.error("Failed to load Kalshi private key: %s", exc)
+        # Called on the per-request auth path; a bad key fails every call, so
+        # warning (not a traceback per call) avoids log-spam during the failure.
+        logger.warning("Failed to load Kalshi private key: %s", exc)
         return None
 
 
@@ -88,7 +90,8 @@ def get_kalshi_headers(method: str, path: str) -> dict | None:
             "Content-Type": "application/json",
         }
     except Exception as exc:
-        logger.error("Failed to sign Kalshi request: %s", exc)
+        # Per-request signing path: warning, no per-call traceback spam.
+        logger.warning("Failed to sign Kalshi request: %s", exc)
         return None
 
 

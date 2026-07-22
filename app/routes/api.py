@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import logging
 import os
 import time
 import shutil
@@ -41,6 +42,7 @@ from app.signal_engine import (
 )
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
+logger = logging.getLogger(__name__)
 
 
 def _utc_iso_z(value: datetime | None) -> str | None:
@@ -811,7 +813,8 @@ def export_training_csv():
             if os.path.isfile(out_path):
                 os.unlink(out_path)
         except OSError:
-            pass
+            # Best-effort temp cleanup — debug only.
+            logger.debug("Could not remove temp export %s", out_path, exc_info=True)
 
     response.call_on_close(_cleanup_training)
     return response
@@ -852,7 +855,7 @@ def export_live_training_data():
         try:
             Path(tmp_path).unlink(missing_ok=True)
         except Exception:
-            pass
+            logger.debug("Could not remove empty temp export %s", tmp_path, exc_info=True)
         return jsonify({"error": "No live resolved rows available yet.", "rows": 0, "skipped": skipped}), 404
     response = send_file(
         tmp_path,
@@ -868,7 +871,8 @@ def export_live_training_data():
             if os.path.isfile(tmp_path):
                 os.unlink(tmp_path)
         except OSError:
-            pass
+            # Best-effort temp cleanup — debug only.
+            logger.debug("Could not remove temp live export %s", tmp_path, exc_info=True)
 
     response.call_on_close(_cleanup_live)
     return response
@@ -1464,6 +1468,7 @@ def control_state():
         from app.paper_trading import get_realized_pnl_today_utc
         pnl_today = float(get_realized_pnl_today_utc() or 0.0)
     except Exception:
+        logger.warning("Failed to compute today's realized PnL; defaulting to 0.0", exc_info=True)
         pnl_today = 0.0
     try:
         from app.models import PaperTrade
@@ -1471,6 +1476,7 @@ def control_state():
         start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         trades_today = PaperTrade.query.filter(PaperTrade.entry_at >= start).count()
     except Exception:
+        logger.warning("Failed to count today's trades; defaulting to 0", exc_info=True)
         trades_today = 0
 
     return jsonify({
