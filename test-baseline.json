@@ -1,5 +1,5 @@
 {
-  "tests_passed": 251,
+  "tests_passed": 248,
   "coverage_pct": 42.0,
   "ruff_violations": 319,
   "mypy_errors": 38,
