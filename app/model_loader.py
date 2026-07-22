@@ -18,11 +18,19 @@ logger = logging.getLogger(__name__)
 
 
 def _load_from_disk(model_path: str = "raw_feature_model.pkl") -> dict | None:
-    """Try to load model from disk. Returns None if file missing."""
+    """Try to load model from disk. Returns None if file missing or unreadable.
+
+    A corrupt/unreadable .pkl must NOT crash load_model — returning None lets the
+    DB fallback (_load_from_db) run, which is a legitimate second source.
+    """
     path = Path(model_path)
     if not path.exists():
         return None
-    bundle = joblib.load(path)
+    try:
+        bundle = joblib.load(path)
+    except Exception:
+        logger.warning("Failed to load model from disk %s; falling back to DB", path, exc_info=True)
+        return None
     if not isinstance(bundle, dict):
         return None
     return bundle
@@ -203,5 +211,17 @@ def predict_proba_raw(feature_dict: dict) -> float:
             val = 0.0
         ordered_values.append(float(val or 0.0))
     frame = pd.DataFrame([ordered_values], columns=features)
-    proba_yes = model.predict_proba(frame)[:, 1][0]
+    try:
+        proba_yes = model.predict_proba(frame)[:, 1][0]
+    except Exception as exc:
+        # FAIL LOUD: a broken model must never yield a fabricated probability —
+        # trading on a made-up number is worse than skipping the cycle. Re-raise
+        # as RuntimeError (the module's model-unusable convention) so the sole
+        # caller's `except RuntimeError` in signal_engine skips the cycle safely,
+        # preserving the original cause for diagnosis.
+        logger.exception(
+            "Model inference failed (%d features); refusing to fabricate a probability",
+            len(features),
+        )
+        raise RuntimeError("Model inference failed in predict_proba_raw") from exc
     return float(proba_yes)

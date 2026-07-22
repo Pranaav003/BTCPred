@@ -28,11 +28,13 @@ def get_setting(key: str, default: str | None = None) -> str | None:
         row = AppSettings.query.filter_by(key=key).first()
         return row.value if row else default
     except SQLAlchemyError:
+        logger.warning("get_setting(%s) failed; retrying after rollback", key, exc_info=True)
         db.session.rollback()
         try:
             row = AppSettings.query.filter_by(key=key).first()
             return row.value if row else default
         except SQLAlchemyError:
+            logger.error("get_setting(%s) failed twice; returning default", key, exc_info=True)
             db.session.rollback()
             return default
 
@@ -407,6 +409,8 @@ def export_training_data(output_path: str = "live_training_data.csv") -> tuple[i
             try:
                 features = json.loads(s.raw_features_json or "{}")
             except Exception:
+                # Silent per-row (avoid one log line per corrupt row on large
+                # exports); a single summary is emitted after the loop.
                 skipped += 1
                 continue
             market = s.market
@@ -426,4 +430,10 @@ def export_training_data(output_path: str = "live_training_data.csv") -> tuple[i
             writer.writerow(row)
             rows_written += 1
 
+    if skipped:
+        logger.warning(
+            "export_training_data: skipped %d row(s) (corrupt features JSON or missing outcome); wrote %d",
+            skipped,
+            rows_written,
+        )
     return rows_written, skipped

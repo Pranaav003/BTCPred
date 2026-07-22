@@ -90,7 +90,7 @@ def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -
             response.raise_for_status()
             payload = response.json()
             if not isinstance(payload, dict):
-                logger.error("Kalshi API returned non-dict JSON for %s", url)
+                logger.warning("Kalshi API returned non-dict JSON for %s", url)
                 return None
             return payload
         except requests.exceptions.Timeout:
@@ -108,10 +108,11 @@ def _get(url: str, params: dict[str, Any] | None = None, max_retries: int = 2) -
             logger.warning("Connection error twice — skipping url=%s", url)
             return None
         except requests.exceptions.HTTPError as exc:
-            logger.error("Kalshi GET failed url=%s params=%s error=%s", url, params, exc)
+            # Hot transport path (hit every poll): warning, no traceback spam.
+            logger.warning("Kalshi GET failed url=%s params=%s error=%s", url, params, exc)
             return None
         except Exception as exc:
-            logger.error("Kalshi GET failed url=%s params=%s error=%s", url, params, exc)
+            logger.warning("Kalshi GET failed url=%s params=%s error=%s", url, params, exc)
             return None
 
     return None
@@ -142,6 +143,9 @@ def _to_unix(value: Any) -> int | None:
                 dt = dt.replace(tzinfo=timezone.utc)
             return int(dt.timestamp())
     except Exception:
+        # Benign, high-frequency parse fallback (malformed timestamp) — debug on
+        # purpose; not an operational error, so INFO/WARNING would be noise.
+        logger.debug("Could not parse timestamp value; treating as None", exc_info=True)
         return None
 
     return None
@@ -179,6 +183,8 @@ def _normalize_price(value: Any) -> float | None:
             price = price / 100.0
         return price
     except Exception:
+        # Benign parse fallback (non-numeric price) — debug on purpose.
+        logger.debug("Could not normalize price value; treating as None", exc_info=True)
         return None
 
 
@@ -256,7 +262,9 @@ def _fetch_candles(ticker: str, close_ts: int) -> pd.DataFrame:
         start_ts = int(close_ts) - 900
         end_ts = int(close_ts)
     except Exception:
-        logger.error("Invalid close_ts for get_candles: %s", close_ts)
+        # Cold, rare data/programming error (malformed close_ts) — surface the
+        # traceback; this is not on the tight poll loop.
+        logger.exception("Invalid close_ts for get_candles: %s", close_ts)
         return empty
 
     url = f"{BASE_URL}/series/{SERIES}/markets/{ticker}/candlesticks"
@@ -419,6 +427,8 @@ def _fetch_trades(ticker: str, start_ts: int, end_ts: int) -> pd.DataFrame:
             try:
                 qty = float(qty_raw) if qty_raw is not None else 1.0
             except Exception:
+                # Benign parse fallback (non-numeric qty) — debug on purpose.
+                logger.debug("Could not parse trade qty %r; defaulting to 1.0", qty_raw)
                 qty = 1.0
 
             all_rows.append({"ts": ts, "price": price, "qty": qty})
@@ -578,6 +588,8 @@ def get_market_prices(ticker: str) -> dict[str, Any] | None:
     try:
         volume = int(float(volume_raw)) if volume_raw is not None else None
     except Exception:
+        # Benign parse fallback (non-numeric volume) — debug on purpose.
+        logger.debug("Could not parse market volume %r; treating as None", volume_raw)
         volume = None
 
     return {

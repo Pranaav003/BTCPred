@@ -172,6 +172,43 @@ def test_init_preserves_perf_block(monkeypatch, tmp_path):
     assert saved["tests_passed"] == 5
 
 
+def test_init_preserves_coverage_and_mypy_floors(monkeypatch, tmp_path):
+    # Refutation-derived: --init must NOT silently lower the coverage/mypy floors
+    # (only ruff_violations is expected to rise when a new rule is enabled). It
+    # preserves the stricter of prior/current for coverage (max) and mypy (min),
+    # exactly as it already preserves the perf block.
+    import json
+    bl = tmp_path / "tb.json"
+    bl.write_text(json.dumps({"tests_passed": 300, "coverage_pct": 44.0,
+                              "ruff_violations": 274, "mypy_errors": 38,
+                              "perf": {"api_health_ms": 0.2}}))
+    monkeypatch.setattr(cq, "BASELINE_PATH", bl)
+    # New run: coverage dipped (new unexercised code), mypy improved, ruff rose.
+    monkeypatch.setattr(cq, "_measure",
+                        lambda: (True, {"tests_passed": 360, "coverage_pct": 42.5,
+                                        "ruff_violations": 307, "mypy_errors": 35}))
+    assert cq.main(["--init"]) == 0
+    saved = json.loads(bl.read_text())
+    assert saved["coverage_pct"] == 44.0   # floor preserved (not lowered to 42.5)
+    assert saved["mypy_errors"] == 35      # stricter (fewer) kept
+    assert saved["ruff_violations"] == 307  # ruff re-seeded upward (rule addition)
+    assert saved["tests_passed"] == 360
+    assert saved["perf"] == {"api_health_ms": 0.2}  # still preserved
+
+
+def test_init_seeds_fresh_when_no_prior_baseline(monkeypatch, tmp_path):
+    # With no prior baseline, --init just stamps current values (nothing to preserve).
+    import json
+    bl = tmp_path / "tb.json"  # does not exist
+    monkeypatch.setattr(cq, "BASELINE_PATH", bl)
+    monkeypatch.setattr(cq, "_measure",
+                        lambda: (True, {"tests_passed": 10, "coverage_pct": 50.0,
+                                        "ruff_violations": 5, "mypy_errors": 2}))
+    assert cq.main(["--init"]) == 0
+    saved = json.loads(bl.read_text())
+    assert saved["coverage_pct"] == 50.0 and saved["ruff_violations"] == 5
+
+
 def test_perf_ratchet_mixed_pass_and_regress_holds_all():
     # one metric improves, another regresses -> whole run fails, baseline unchanged (no partial ratchet)
     base = {"a_ms": 10.0, "b_ms": 10.0}

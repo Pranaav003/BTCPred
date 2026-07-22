@@ -4,12 +4,14 @@ import json
 import os
 
 import click
-from flask import Flask
+from flask import Flask, jsonify, request
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
+from werkzeug.exceptions import HTTPException
 
 from app.config import config_by_name
 from app.extensions import db
+from app.logging_config import configure_logging
 from app.routes.api import api_bp
 from app.routes.dashboard import dashboard_bp
 
@@ -20,6 +22,19 @@ def create_app(config_name: str | None = None) -> Flask:
 
     selected_config = config_name or "development"
     app.config.from_object(config_by_name[selected_config])
+
+    # Configure central logging first so anything below is captured.
+    configure_logging(app)
+
+    @app.errorhandler(Exception)
+    def _handle_unexpected(exc):
+        # Preserve HTTPExceptions (404/405/CSRFError/etc.) unchanged.
+        if isinstance(exc, HTTPException):
+            return exc
+        app.logger.exception("Unhandled exception on %s", request.path)
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "internal error", "status": 500}), 500
+        return "Something went wrong. Please retry.", 500
 
     db.init_app(app)
     csrf = CSRFProtect(app)

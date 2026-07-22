@@ -218,7 +218,8 @@ def _execute_live_trade(result, snapshot, saved_signal, app) -> None:
             try:
                 get_model()
             except Exception:
-                logger.error("Live trade skipped: no model loaded")
+                # Rare, actionable, not on the tight poll loop — surface the cause.
+                logger.exception("Live trade skipped: no model loaded")
                 return
 
             balance = get_balance()

@@ -173,7 +173,9 @@ def compute_features(market_dict: dict[str, Any]) -> dict | None:
             logger.warning("Candle fetch timed out after 20s — skipping poll")
             return None
         except Exception as exc:
-            logger.error("Candle fetch failed: %s", exc)
+            # Hot 45s poll path: warning, not a full traceback every cycle
+            # during a Kalshi outage (would bury real signal).
+            logger.warning("Candle fetch failed: %s", exc)
             return None
         if trade_future is not None:
             try:

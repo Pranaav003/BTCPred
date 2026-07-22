@@ -18,7 +18,10 @@ target-version = "py311"
 extend-exclude = [".venv", "sim_results"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+# E includes E722 (bare except). BLE001 flags blind `except Exception` so no new
+# silent catch can creep in; the existing ~legitimate broad catches (scheduler
+# job boundaries, etc.) are frozen by re-seeding the baseline once.
+select = ["E", "F", "I", "BLE001"]
 
 [tool.mypy]
 python_version = "3.11"

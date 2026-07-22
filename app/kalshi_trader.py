@@ -73,10 +73,11 @@ def get_balance() -> dict | None:
                 "balance_dollars": round(balance_cents / 100, 2),
                 "raw": data,
             }
-        logger.error("Balance check failed: %s %s", response.status_code, response.text[:200])
+        logger.warning("Balance check failed: %s %s", response.status_code, response.text[:200])
         return None
     except Exception as exc:
-        logger.error("Balance check error: %s", exc)
+        # Hot per-trade path: warning, no traceback spam.
+        logger.warning("Balance check error: %s", exc)
         return None
 
 
@@ -251,7 +252,8 @@ def get_order_status(order_id: str) -> dict | None:
         )
         return None
     except Exception as exc:
-        logger.error("Order status fetch error for %s: %s", order_id, exc)
+        # Hot path (polled while a resting order exists): warning, no traceback spam.
+        logger.warning("Order status fetch error for %s: %s", order_id, exc)
         return None
 
 
@@ -299,8 +301,15 @@ def get_open_positions() -> list:
         response = requests.get(TRADING_BASE_URL + path, headers=headers, timeout=10)
         if response.status_code == 200:
             return response.json().get("market_positions", [])
+        # Hot per-trade path: warn (no stack trace) and degrade to empty.
+        logger.warning(
+            "Open positions fetch failed: %s %s", response.status_code, response.text[:200]
+        )
         return []
     except Exception:
+        # Warning (not exception): this is polled frequently; a full traceback
+        # every cycle during an outage would bury real signal.
+        logger.warning("Open positions fetch error; returning empty list", exc_info=True)
         return []
 
 
@@ -333,5 +342,6 @@ def get_settlement_for_ticker(ticker: str) -> dict | None:
         row = settlements[0]
         return row if isinstance(row, dict) else None
     except Exception as exc:
-        logger.error("Settlement fetch error for %s: %s", ticker, exc)
+        # Resolver path (~60s cadence): warning, no traceback spam.
+        logger.warning("Settlement fetch error for %s: %s", ticker, exc)
         return None
